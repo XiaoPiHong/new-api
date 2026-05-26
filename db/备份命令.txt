@@ -1,0 +1,7 @@
+开发环境
+mkdir "d:\code\sso-docker-demo\new-api\db" -Force
+docker exec postgres pg_dump -U root -d new-api > "d:\code\sso-docker-demo\new-api\db\newapi（表结构跟数据-ai聚合第一版）.sql"
+
+生产环境
+mkdir -p /root/sso-docker-demo/new-api/db/
+docker exec postgres pg_dump -U root -d new-api > "/root/sso-docker-demo/new-api/db/newapi（表结构跟数据-ai聚合第一版-线上）.sql"

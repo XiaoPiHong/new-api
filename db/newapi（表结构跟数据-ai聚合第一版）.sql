@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict HFBBYgUGlHyTJgAvGnMATcWU0qh2eZdytxjX4uRhwq3TFqWDdscxYHTFDcFMRpD
+\restrict jj4CAgywx3kXKGYKcdJXOthWmfdDCqWUPRTiJ7csMwVmYdc3BPXuCKb33cC29zE
 
 -- Dumped from database version 15.18 (Debian 15.18-1.pgdg13+1)
 -- Dumped by pg_dump version 15.18 (Debian 15.18-1.pgdg13+1)
@@ -1303,6 +1303,7 @@ default	gpt-5.5	1	t	0	0
 default	grok-imagine-image-lite	3	t	0	0	
 default	mimo-v2.5	2	t	0	0	
 default	mimo-v2.5-pro	2	t	0	0	
+default	gpt-image-2	4	t	0	0	
 \.
 
 
@@ -1311,8 +1312,9 @@ default	mimo-v2.5-pro	2	t	0	0
 --
 
 COPY public.channels (id, type, key, open_ai_organization, test_model, status, name, weight, created_time, test_time, response_time, base_url, other, balance, balance_updated_time, models, "group", used_quota, model_mapping, status_code_mapping, priority, auto_ban, other_info, tag, setting, param_override, header_override, remark, channel_info, settings) FROM stdin;
-2	20	sk-cb3l7euoh0tuhw7szk3urgpwl6isizu3cmuunfyzst84arj2	\N		1	mimo	0	1779760263	0	0	https://api.xiaomimimo.com		0	0	mimo-v2.5,mimo-v2.5-pro	default	0			0	1			{"force_format":false,"thinking_to_content":false,"proxy":"","pass_through_body_enabled":false,"system_prompt":"","system_prompt_override":false}		\N	\N	{"is_multi_key":false,"multi_key_size":0,"multi_key_status_list":null,"multi_key_polling_index":0,"multi_key_mode":"random"}	{"openrouter_enterprise":false,"upstream_model_update_check_enabled":false,"upstream_model_update_auto_sync_enabled":false,"upstream_model_update_ignored_models":[],"upstream_model_update_last_detected_models":[],"upstream_model_update_last_check_time":0}
-3	48	sk-4mkWUJBLR4Hlh0v17FIeR2VO5UPBq5kFxlUITJGfnJM1nbML	\N		1	xai	0	1779760345	0	0	https://jiuuij.de5.net		0	0	grok-imagine-image-lite	default	50000			0	1			{"force_format":false,"thinking_to_content":false,"proxy":"","pass_through_body_enabled":false,"system_prompt":"","system_prompt_override":false}		\N	\N	{"is_multi_key":false,"multi_key_size":0,"multi_key_status_list":null,"multi_key_polling_index":0,"multi_key_mode":"random"}	{"upstream_model_update_check_enabled":false,"upstream_model_update_auto_sync_enabled":false,"upstream_model_update_ignored_models":[],"upstream_model_update_last_detected_models":[],"upstream_model_update_last_check_time":0}
+4	20	sk-SPZbgGO5AtLFwVH2gYOhON2eGYetW_vR	\N		1	deepark公益	0	1779763049	1779763127	52746	https://image.deepark.tech		0	0	gpt-image-2	default	250000			0	1			{"force_format":false,"thinking_to_content":false,"proxy":"","pass_through_body_enabled":false,"system_prompt":"","system_prompt_override":false}		\N	\N	{"is_multi_key":false,"multi_key_size":0,"multi_key_status_list":null,"multi_key_polling_index":0,"multi_key_mode":"random"}	{"openrouter_enterprise":false,"upstream_model_update_check_enabled":false,"upstream_model_update_auto_sync_enabled":false,"upstream_model_update_ignored_models":[],"upstream_model_update_last_detected_models":[],"upstream_model_update_last_check_time":0}
+2	20	sk-cb3l7euoh0tuhw7szk3urgpwl6isizu3cmuunfyzst84arj2	\N		1	mimo	0	1779760263	1779762930	1267	https://api.xiaomimimo.com		0	0	mimo-v2.5,mimo-v2.5-pro	default	0			0	1			{"force_format":false,"thinking_to_content":false,"proxy":"","pass_through_body_enabled":false,"system_prompt":"","system_prompt_override":false}		\N	\N	{"is_multi_key":false,"multi_key_size":0,"multi_key_status_list":null,"multi_key_polling_index":0,"multi_key_mode":"random"}	{"openrouter_enterprise":false,"upstream_model_update_check_enabled":false,"upstream_model_update_auto_sync_enabled":false,"upstream_model_update_ignored_models":[],"upstream_model_update_last_detected_models":[],"upstream_model_update_last_check_time":0}
+3	48	sk-4mkWUJBLR4Hlh0v17FIeR2VO5UPBq5kFxlUITJGfnJM1nbML	\N		1	xai	0	1779760345	1779762942	9590	https://jiuuij.de5.net		0	0	grok-imagine-image-lite	default	50000			0	1			{"force_format":false,"thinking_to_content":false,"proxy":"","pass_through_body_enabled":false,"system_prompt":"","system_prompt_override":false}		\N	\N	{"is_multi_key":false,"multi_key_size":0,"multi_key_status_list":null,"multi_key_polling_index":0,"multi_key_mode":"random"}	{"upstream_model_update_check_enabled":false,"upstream_model_update_auto_sync_enabled":false,"upstream_model_update_ignored_models":[],"upstream_model_update_last_detected_models":[],"upstream_model_update_last_check_time":0}
 1	1	sk-1bd27cc7b4a267e79828b10f04435361a423a4cad7a91847797619ec96584c78			1	openai	0	1779422254	1779426031	4465	http://119.29.249.17:8080		0	0	gpt-5.4,gpt-image-2,gpt-5.5	default	13750072			0	1			{"force_format":false,"thinking_to_content":false,"proxy":"","pass_through_body_enabled":false,"system_prompt":"","system_prompt_override":false}		\N	\N	{"is_multi_key":false,"multi_key_size":0,"multi_key_status_list":null,"multi_key_polling_index":0,"multi_key_mode":"random"}	{"allow_service_tier":false,"disable_store":false,"allow_safety_identifier":false,"allow_include_obfuscation":false,"upstream_model_update_check_enabled":false,"upstream_model_update_auto_sync_enabled":false,"upstream_model_update_ignored_models":[],"upstream_model_update_last_detected_models":[],"upstream_model_update_last_check_time":0}
 \.
 
@@ -1420,6 +1422,12 @@ COPY public.logs (id, user_id, created_at, type, content, username, token_name, 
 80	2	1779550524	2	大小 1216x544, 品质 standard, 生成数量 1	sso-admin	默认	gpt-image-2	250000	1031	671	161	f	1	\N	4	default		202605231532431425850738268d9d6xa9nBoal		{"admin_info":{"use_channel":["1"]},"billing_source":"wallet","cache_ratio":0,"cache_tokens":0,"completion_ratio":0,"frt":-1000,"group_ratio":1,"image":true,"image_output":646,"image_ratio":0,"model_price":0.5,"model_ratio":0,"request_conversion":["openai_image"],"request_path":"/v1/images/edits","user_group_ratio":-1}
 81	2	1779761526	5	status_code=401, 无效的令牌 (request id: 20260526021205714448749RyNrT1lW)	sso-admin	默认	grok-imagine-image-lite	0	0	0	1	f	3	\N	4	default		202605260212041698090928268d9d6qLxnzT7I	20260526021205714448749RyNrT1lW	{"admin_info":{"use_channel":["3"]},"channel_id":3,"channel_name":"xai","channel_type":48,"error_code":"","error_type":"openai_error","request_path":"/v1/images/generations","status_code":401}
 82	2	1779761707	2	大小 1216x544, 品质 standard, 生成数量 1	sso-admin	默认	grok-imagine-image-lite	50000	1	0	13	f	3	\N	4	default		202605260214547397878268d9d6ej0I1VR3	20260526021454964207323plGrEko6	{"admin_info":{"use_channel":["3"]},"billing_source":"wallet","cache_ratio":0,"cache_tokens":0,"completion_ratio":0,"frt":-1000,"group_ratio":1,"model_price":0.1,"model_ratio":0,"request_conversion":["openai_image"],"request_path":"/v1/images/generations","user_group_ratio":-1}
+83	1	1779762930	2	模型测试	xiaopihong	模型测试	mimo-v2.5	13	248	16	1	f	2	\N	0	default				{"admin_info":{"use_channel":null},"cache_ratio":1,"cache_tokens":192,"completion_ratio":1,"frt":-1000,"group_ratio":1,"model_price":-1,"model_ratio":0.05,"request_conversion":["OpenAI Compatible"],"request_path":"/v1/chat/completions","user_group_ratio":-1}
+84	1	1779762942	2	模型测试	xiaopihong	模型测试	grok-imagine-image-lite	50000	5	69	9	f	3	\N	0	default			20260526023533732405156J7loMypH	{"admin_info":{"use_channel":null},"cache_ratio":0,"cache_tokens":0,"completion_ratio":0,"frt":-1000,"group_ratio":1,"model_price":0.1,"model_ratio":0,"request_conversion":["OpenAI Compatible"],"request_path":"/v1/chat/completions","user_group_ratio":-1}
+85	1	1779763127	2	模型测试	xiaopihong	模型测试	gpt-image-2	250000	0	2237986	52	f	4	\N	0	default				{"admin_info":{"use_channel":null},"cache_ratio":0,"cache_tokens":0,"completion_ratio":0,"frt":-1000,"group_ratio":1,"model_price":0.5,"model_ratio":0,"request_conversion":["OpenAI Compatible"],"request_path":"/v1/chat/completions","user_group_ratio":-1}
+86	2	1779763322	5	status_code=503, No available compatible accounts	sso-admin	默认	gpt-image-2	0	0	0	0	f	1	\N	4	default		202605260242018801237248268d9d6XIODf5Eh		{"admin_info":{"use_channel":["1"]},"channel_id":1,"channel_name":"openai","channel_type":1,"error_code":"unknown_error","error_type":"openai_error","request_path":"/v1/images/edits","status_code":503}
+87	2	1779763436	2	大小 1216x544, 品质 standard, 生成数量 1	sso-admin	默认	gpt-image-2	250000	1	0	62	f	4	\N	4	default		202605260242543652860598268d9d6IL63k0oT		{"admin_info":{"use_channel":["4"]},"billing_source":"wallet","cache_ratio":0,"cache_tokens":0,"completion_ratio":0,"frt":-1000,"group_ratio":1,"model_price":0.5,"model_ratio":0,"request_conversion":["openai_image"],"request_path":"/v1/images/edits","user_group_ratio":-1}
+88	2	1779763497	5	status_code=400, 未指定模型名称，模型名称不能为空 (request id: 20260526024456858222308YXzrZFr4)	sso-admin	默认	grok-imagine-image-lite	0	0	0	1	f	3	\N	4	default		202605260244558765740358268d9d6r4GNN6Dt	20260526024456858222308YXzrZFr4	{"admin_info":{"use_channel":["3"]},"channel_id":3,"channel_name":"xai","channel_type":48,"error_code":"","error_type":"openai_error","request_path":"/v1/images/edits","status_code":400}
 \.
 
 
@@ -1438,9 +1446,9 @@ COPY public.midjourneys (id, code, user_id, action, mj_id, prompt, prompt_en, de
 COPY public.models (id, model_name, description, icon, tags, vendor_id, endpoints, status, sync_official, created_time, updated_time, deleted_at, name_rule) FROM stdin;
 3	grok-imagine-image-lite		Grok	生图模型	2	{\n  "openai": {\n    "path": "/v1/chat/completions",\n    "method": "POST"\n  },\n  "image-generation": {\n    "path": "/v1/images/generations",\n    "method": "POST"\n  }\n}	1	1	1779760487	1779760487	\N	0
 4	mimo-v2.5-pro			常规模型	3	{\n  "openai": {\n    "path": "/v1/chat/completions",\n    "method": "POST"\n  }\n}	1	1	1779760827	1779760876	\N	0
-2	gpt-image-2		OpenAI	生图模型	1	{\n  "image-generation": {\n    "path": "/v1/images/generations",\n    "method": "POST"\n  }\n}	1	1	1779425458	1779760888	\N	0
 1	gpt-5.4		OpenAI	常规模型	1	{\n  "openai": {\n    "path": "/v1/chat/completions",\n    "method": "POST"\n  }\n}	1	1	1779425439	1779760968	\N	0
 5	mimo-v2.5			常规模型	3	{\n  "openai": {\n    "path": "/v1/chat/completions",\n    "method": "POST"\n  }\n}	1	1	1779760857	1779760979	\N	0
+2	gpt-image-2		OpenAI	生图模型	4	{\n  "image-generation": {\n    "path": "/v1/images/generations",\n    "method": "POST"\n  }\n}	1	1	1779425458	1779763288	\N	0
 \.
 
 
@@ -1533,6 +1541,10 @@ COPY public.quota_data (id, user_id, username, model_name, created_at, token_use
 16	2	sso-admin	gpt-image-2	1779544800	4862	3	750000
 17	2	sso-admin	gpt-image-2	1779548400	3330	2	500000
 18	2	sso-admin	grok-imagine-image-lite	1779760800	1	1	50000
+19	1	xiaopihong	mimo-v2.5	1779760800	264	1	13
+20	1	xiaopihong	grok-imagine-image-lite	1779760800	74	1	50000
+21	1	xiaopihong	gpt-image-2	1779760800	2237986	1	250000
+22	2	sso-admin	gpt-image-2	1779760800	1	1	250000
 \.
 
 
@@ -1591,7 +1603,7 @@ COPY public.tasks (id, created_at, updated_at, task_id, platform, user_id, "grou
 
 COPY public.tokens (id, user_id, key, status, name, created_time, accessed_time, expired_time, remain_quota, unlimited_quota, model_limits_enabled, model_limits, allow_ips, used_quota, "group", cross_group_retry, deleted_at) FROM stdin;
 3	2	fVbBVEnWg5jdHX1kfAcOD4Br3uo5RFVFk5jo9quGoIzAupDs	1	测试	1779504734	1779504734	-1	0	t	f			0		f	2026-05-23 03:29:12.588237+00
-4	2	WZmKtrzwB2aLDK10MVd0aLgN8CVV0XLYECGcpbNPHbgkR3Up	1	默认	1779506955	1779761710	-1	-5550000	t	f			5550000		f	\N
+4	2	WZmKtrzwB2aLDK10MVd0aLgN8CVV0XLYECGcpbNPHbgkR3Up	1	默认	1779506955	1779763441	-1	-5800000	t	f			5800000		f	\N
 1	2	IAyIeafIBwjqeHcCEYNXjZVe93SCl1wo37OxXAsKSBGepFpL	1	自用	1779425231	1779468674	-1	-8250072	t	f			8250072		f	2026-05-23 02:36:44.895133+00
 2	2	Dly7NbE5AHT1kkGW2Pf24UMbWigMCErbeUd1nVkGSxCCFxJ6	1	自用	1779503814	1779503814	-1	0	t	f			0		f	2026-05-23 02:52:23.781177+00
 \.
@@ -1643,8 +1655,8 @@ COPY public.user_subscriptions (id, user_id, plan_id, amount_total, amount_used,
 
 COPY public.users (id, username, password, display_name, role, status, email, github_id, discord_id, oidc_id, wechat_id, telegram_id, access_token, quota, used_quota, request_count, "group", aff_code, aff_count, aff_quota, aff_history, inviter_id, deleted_at, linux_do_id, setting, remark, stripe_customer, created_at, last_login_at) FROM stdin;
 1	xiaopihong	$2a$10$w.mSTu2Yxr02DQEJWr.dp.1o3MNjOQAWIyf568/v3XZ984xlizG52	Root User	100	1							Z7Gh1c2hrvUrar9M7AD+607PjAQzNg==	100000000	0	0	default		0	0	0	0	\N					1779422084	1779760098
-2	sso-admin	$2a$10$bBKOR3DUPyPBiWtQkLXbiObUOGNEUWrSavgaE7OqGuBUYLlhJBY4W		1	1	811258682@qq.com			1			acf8d17ef1fbe54eeec437826c84679a	46199928	13800072	57	default	jJJI	0	0	0	0	\N		{"gotify_priority":0,"sidebar_modules":"{\\"chat\\":{\\"chat\\":true,\\"enabled\\":true,\\"playground\\":true},\\"console\\":{\\"detail\\":true,\\"enabled\\":true,\\"log\\":true,\\"midjourney\\":true,\\"task\\":true,\\"token\\":true},\\"personal\\":{\\"enabled\\":true,\\"personal\\":true,\\"topup\\":true}}"}			1779425212	1779506912
 3	xph-admin	$2a$10$eYkyI3yo0vBrPAkV0yPx8OH0Yk1JmpuegoQH0R2Jz3dbfHfhGSqLm		1	1	811258683@qq.com			2			0ac62a322d06508e36e7897142ea189d	50000000	0	0	default	IB83	0	0	0	0	\N		{"gotify_priority":0,"sidebar_modules":"{\\"chat\\":{\\"chat\\":true,\\"enabled\\":true,\\"playground\\":true},\\"console\\":{\\"detail\\":true,\\"enabled\\":true,\\"log\\":true,\\"midjourney\\":true,\\"task\\":true,\\"token\\":true},\\"personal\\":{\\"enabled\\":true,\\"personal\\":true,\\"topup\\":true}}"}			1779425248	0
+2	sso-admin	$2a$10$bBKOR3DUPyPBiWtQkLXbiObUOGNEUWrSavgaE7OqGuBUYLlhJBY4W		1	1	811258682@qq.com			1			acf8d17ef1fbe54eeec437826c84679a	45949928	14050072	58	default	jJJI	0	0	0	0	\N		{"gotify_priority":0,"sidebar_modules":"{\\"chat\\":{\\"chat\\":true,\\"enabled\\":true,\\"playground\\":true},\\"console\\":{\\"detail\\":true,\\"enabled\\":true,\\"log\\":true,\\"midjourney\\":true,\\"task\\":true,\\"token\\":true},\\"personal\\":{\\"enabled\\":true,\\"personal\\":true,\\"topup\\":true}}"}			1779425212	1779506912
 \.
 
 
@@ -1656,6 +1668,7 @@ COPY public.vendors (id, name, description, icon, status, created_time, updated_
 1	OpenAI		OpenAI	1	1779425103	1779425103	\N
 2	xAI		XAI	1	1779760352	1779760352	\N
 3	MiMo		MiMo	1	1779760800	1779760800	\N
+4	deepark			1	1779763228	1779763228	\N
 \.
 
 
@@ -1663,7 +1676,7 @@ COPY public.vendors (id, name, description, icon, status, created_time, updated_
 -- Name: channels_id_seq; Type: SEQUENCE SET; Schema: public; Owner: root
 --
 
-SELECT pg_catalog.setval('public.channels_id_seq', 3, true);
+SELECT pg_catalog.setval('public.channels_id_seq', 4, true);
 
 
 --
@@ -1684,7 +1697,7 @@ SELECT pg_catalog.setval('public.custom_oauth_providers_id_seq', 1, false);
 -- Name: logs_id_seq; Type: SEQUENCE SET; Schema: public; Owner: root
 --
 
-SELECT pg_catalog.setval('public.logs_id_seq', 82, true);
+SELECT pg_catalog.setval('public.logs_id_seq', 88, true);
 
 
 --
@@ -1726,7 +1739,7 @@ SELECT pg_catalog.setval('public.prefill_groups_id_seq', 1, false);
 -- Name: quota_data_id_seq; Type: SEQUENCE SET; Schema: public; Owner: root
 --
 
-SELECT pg_catalog.setval('public.quota_data_id_seq', 18, true);
+SELECT pg_catalog.setval('public.quota_data_id_seq', 22, true);
 
 
 --
@@ -1824,7 +1837,7 @@ SELECT pg_catalog.setval('public.users_id_seq', 3, true);
 -- Name: vendors_id_seq; Type: SEQUENCE SET; Schema: public; Owner: root
 --
 
-SELECT pg_catalog.setval('public.vendors_id_seq', 3, true);
+SELECT pg_catalog.setval('public.vendors_id_seq', 4, true);
 
 
 --
@@ -2779,5 +2792,5 @@ CREATE UNIQUE INDEX ux_user_provider ON public.user_oauth_bindings USING btree (
 -- PostgreSQL database dump complete
 --
 
-\unrestrict HFBBYgUGlHyTJgAvGnMATcWU0qh2eZdytxjX4uRhwq3TFqWDdscxYHTFDcFMRpD
+\unrestrict jj4CAgywx3kXKGYKcdJXOthWmfdDCqWUPRTiJ7csMwVmYdc3BPXuCKb33cC29zE
 

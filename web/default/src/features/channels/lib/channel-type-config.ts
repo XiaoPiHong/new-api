@@ -134,6 +134,16 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       baseUrl: 'Default: https://api.replicate.com',
     },
   },
+  58: {
+    id: 58,
+    name: CHANNEL_TYPES[58],
+    icon: 'xai',
+    hints: {
+      baseUrl: 'Provider root URL, e.g. https://api.winfull.cloud-ip.cc',
+      key: 'Bearer API key',
+      models: 'grok-imagine-video',
+    },
+  },
 }
 
 /**

@@ -394,6 +394,7 @@ export function getChannelIcon(channelType) {
     case 45: // 字节火山方舟、豆包通用
       return <Doubao.Color size={iconSize} />;
     case 48: // xAI
+    case 58: // GrokVideo
       return <XAI size={iconSize} />;
     case 49: // Coze
       return <Coze size={iconSize} />;

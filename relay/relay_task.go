@@ -215,6 +215,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "build_request_failed", http.StatusInternalServerError)
 	}
+	requestBody, err = applyTaskParamOverride(requestBody, info)
+	if err != nil {
+		return nil, service.TaskErrorWrapper(err, "param_override_failed", http.StatusBadRequest)
+	}
 
 	// 9. 发送请求
 	resp, err := adaptor.DoRequest(c, info, requestBody)
@@ -255,6 +259,30 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Platform:       platform,
 		Quota:          finalQuota,
 	}, nil
+}
+
+// applyTaskParamOverride lets async task requests use the same channel
+// parameter override rules as chat/image/embedding relays. Only JSON bodies are
+// rewritten; multipart and other binary bodies pass through unchanged.
+func applyTaskParamOverride(requestBody io.Reader, info *relaycommon.RelayInfo) (io.Reader, error) {
+	if info == nil || info.ChannelMeta == nil || len(info.ChannelMeta.ParamOverride) == 0 {
+		return requestBody, nil
+	}
+
+	bodyBytes, err := io.ReadAll(requestBody)
+	if err != nil {
+		return nil, err
+	}
+	trimmed := bytes.TrimSpace(bodyBytes)
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return bytes.NewReader(bodyBytes), nil
+	}
+
+	jsonData, err := relaycommon.ApplyParamOverrideWithRelayInfo(bodyBytes, info)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(jsonData), nil
 }
 
 // recalcQuotaFromRatios 根据 adjustedRatios 重新计算 quota。

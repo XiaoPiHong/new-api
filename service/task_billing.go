@@ -38,6 +38,9 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	other := make(map[string]interface{})
 	other["is_task"] = true
 	other["request_path"] = c.Request.URL.Path
+	if traceId := model.GetBillingTraceId(c); traceId != "" {
+		other["billing_trace_id"] = traceId
+	}
 	other["model_price"] = info.PriceData.ModelPrice
 	if info.PriceData.ModelRatio > 0 {
 		other["model_ratio"] = info.PriceData.ModelRatio
@@ -167,6 +170,13 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
 	// 3. 记录日志
 	other := taskBillingOther(task)
 	other["task_id"] = task.TaskID
+	billingTraceId := task.BillingTraceId
+	if billingTraceId == "" {
+		billingTraceId = task.PrivateData.BillingTraceId
+	}
+	if billingTraceId != "" {
+		other["billing_trace_id"] = billingTraceId
+	}
 	other["reason"] = reason
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:    task.UserId,
@@ -177,6 +187,7 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
 		Quota:     quota,
 		TokenId:   task.PrivateData.TokenId,
 		Group:     task.Group,
+		BillingTraceId: billingTraceId,
 		Other:     other,
 	})
 }
@@ -229,6 +240,13 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	}
 	other := taskBillingOther(task)
 	other["task_id"] = task.TaskID
+	billingTraceId := task.BillingTraceId
+	if billingTraceId == "" {
+		billingTraceId = task.PrivateData.BillingTraceId
+	}
+	if billingTraceId != "" {
+		other["billing_trace_id"] = billingTraceId
+	}
 	other["pre_consumed_quota"] = preConsumedQuota
 	other["actual_quota"] = actualQuota
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
@@ -240,6 +258,7 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		Quota:     logQuota,
 		TokenId:   task.PrivateData.TokenId,
 		Group:     task.Group,
+		BillingTraceId: billingTraceId,
 		Other:     other,
 	})
 }

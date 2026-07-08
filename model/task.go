@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
+	"gorm.io/gorm"
 )
 
 type TaskStatus string
@@ -50,6 +51,7 @@ type Task struct {
 	UserId     int                   `json:"user_id" gorm:"index"`
 	Group      string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
 	ChannelId  int                   `json:"channel_id" gorm:"index"`
+	BillingTraceId string             `json:"billing_trace_id,omitempty" gorm:"type:varchar(128);index"`
 	Quota      int                   `json:"quota"`
 	Action     string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
 	Status     TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
@@ -100,6 +102,7 @@ type TaskPrivateData struct {
 	Key            string `json:"key,omitempty"`
 	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
 	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	BillingTraceId string `json:"billing_trace_id,omitempty"` // 外部工作流节点账单追踪 ID
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -326,6 +329,21 @@ func GetByOnlyTaskId(taskId string) (*Task, bool, error) {
 		return nil, false, err
 	}
 	return task, exist, err
+}
+
+func GetByBillingTraceId(traceId string) (*Task, bool, error) {
+	if traceId == "" {
+		return nil, false, nil
+	}
+	var task Task
+	err := DB.Where("billing_trace_id = ?", traceId).First(&task).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return &task, true, nil
 }
 
 func GetByTaskId(userId int, taskId string) (*Task, bool, error) {

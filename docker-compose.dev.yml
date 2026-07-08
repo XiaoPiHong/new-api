@@ -31,6 +31,7 @@ services:
       - REDIS_CONN_STRING=redis://redis
       - TZ=Asia/Shanghai
       - BATCH_UPDATE_ENABLED=true
+      - BILLING_TRACE_SECRET=b0c8e9411057f6ce684cc121e6233dfc456261854756c187fa5ffdf804cc64f8
     depends_on:
       redis:
         condition: service_started

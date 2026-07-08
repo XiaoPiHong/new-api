@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -37,6 +38,7 @@ type Log struct {
 	Ip                string `json:"ip" gorm:"index;default:''"`
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
+	BillingTraceId    string `json:"billing_trace_id,omitempty" gorm:"type:varchar(128);index:idx_logs_billing_trace_id;default:''"`
 	Other             string `json:"other"`
 }
 
@@ -204,6 +206,21 @@ type RecordConsumeLogParams struct {
 	Other            map[string]interface{} `json:"other"`
 }
 
+func GetBillingTraceId(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	expectedSecret := strings.TrimSpace(common.GetEnvOrDefaultString("BILLING_TRACE_SECRET", ""))
+	if expectedSecret == "" {
+		return ""
+	}
+	actualSecret := strings.TrimSpace(c.GetHeader(common.BillingTraceSecretKey))
+	if actualSecret != expectedSecret {
+		return ""
+	}
+	return strings.TrimSpace(c.GetHeader(common.BillingTraceIdKey))
+}
+
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
 	if !common.LogConsumeEnabled {
 		return
@@ -212,6 +229,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
+	billingTraceId := GetBillingTraceId(c)
 	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -244,6 +262,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		}(),
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
+		BillingTraceId:    billingTraceId,
 		Other:             otherStr,
 	}
 	err := LOG_DB.Create(log).Error
@@ -258,15 +277,16 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 }
 
 type RecordTaskBillingLogParams struct {
-	UserId    int
-	LogType   int
-	Content   string
-	ChannelId int
-	ModelName string
-	Quota     int
-	TokenId   int
-	Group     string
-	Other     map[string]interface{}
+	UserId         int
+	LogType        int
+	Content        string
+	ChannelId      int
+	ModelName      string
+	Quota          int
+	TokenId        int
+	Group          string
+	BillingTraceId string
+	Other          map[string]interface{}
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -281,23 +301,31 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		}
 	}
 	log := &Log{
-		UserId:    params.UserId,
-		Username:  username,
-		CreatedAt: common.GetTimestamp(),
-		Type:      params.LogType,
-		Content:   params.Content,
-		TokenName: tokenName,
-		ModelName: params.ModelName,
-		Quota:     params.Quota,
-		ChannelId: params.ChannelId,
-		TokenId:   params.TokenId,
-		Group:     params.Group,
-		Other:     common.MapToJsonStr(params.Other),
+		UserId:         params.UserId,
+		Username:       username,
+		CreatedAt:      common.GetTimestamp(),
+		Type:           params.LogType,
+		Content:        params.Content,
+		TokenName:      tokenName,
+		ModelName:      params.ModelName,
+		Quota:          params.Quota,
+		ChannelId:      params.ChannelId,
+		TokenId:        params.TokenId,
+		Group:          params.Group,
+		BillingTraceId: params.BillingTraceId,
+		Other:          common.MapToJsonStr(params.Other),
 	}
 	err := LOG_DB.Create(log).Error
 	if err != nil {
 		common.SysLog("failed to record task billing log: " + err.Error())
 	}
+}
+
+func GetLogsByBillingTraceId(traceId string) (logs []*Log, err error) {
+	err = LOG_DB.Where("billing_trace_id = ?", traceId).
+		Order("created_at asc, id asc").
+		Find(&logs).Error
+	return logs, err
 }
 
 func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {

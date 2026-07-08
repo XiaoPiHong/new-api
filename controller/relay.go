@@ -577,7 +577,10 @@ func RelayTask(c *gin.Context) {
 		service.LogTaskConsumption(c, relayInfo)
 
 		task := model.InitTask(result.Platform, relayInfo)
+		billingTraceId := model.GetBillingTraceId(c)
+		task.BillingTraceId = billingTraceId
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
+		task.PrivateData.BillingTraceId = billingTraceId
 		task.PrivateData.BillingSource = relayInfo.BillingSource
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId

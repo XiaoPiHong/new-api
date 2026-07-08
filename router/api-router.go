@@ -320,6 +320,12 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)
 		}
+		billingTraceRoute := apiRouter.Group("/billing/traces")
+		billingTraceRoute.Use(middleware.AdminAuth())
+		{
+			billingTraceRoute.GET("/:trace_id", controller.GetBillingTrace)
+			billingTraceRoute.POST("/:trace_id/refund", controller.RefundBillingTrace)
+		}
 		groupRoute := apiRouter.Group("/group")
 		groupRoute.Use(middleware.AdminAuth())
 		{

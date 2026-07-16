@@ -396,6 +396,8 @@ export function getChannelIcon(channelType) {
     case 48: // xAI
     case 58: // GrokVideo
       return <XAI size={iconSize} />;
+    case 59: // RunningHub
+      return <OpenAI size={iconSize} />;
     case 49: // Coze
       return <Coze size={iconSize} />;
     case 50: // 可灵 Kling

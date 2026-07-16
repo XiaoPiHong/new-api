@@ -144,6 +144,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'grok-imagine-video',
     },
   },
+  59: {
+    id: 59,
+    name: CHANNEL_TYPES[59],
+    icon: 'openai',
+    defaultBaseUrl: 'https://www.runninghub.ai',
+    hints: {
+      baseUrl: 'Default: https://www.runninghub.ai',
+      key: 'RunningHub API key',
+      models: 'runninghub-rhart-video-g,runninghub-rhart-video-v3.1-fast,runninghub-rhart-video/sparkvideo-2.0-fast',
+    },
+  },
 }
 
 /**

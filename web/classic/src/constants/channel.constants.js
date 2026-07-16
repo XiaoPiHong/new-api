@@ -194,6 +194,11 @@ export const CHANNEL_OPTIONS = [
     color: 'blue',
     label: 'GrokVideo',
   },
+  {
+    value: 59,
+    color: 'purple',
+    label: 'RunningHub',
+  },
 ];
 
 // Channel types that support upstream model list fetching in UI.

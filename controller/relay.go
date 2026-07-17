@@ -32,6 +32,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const relayErrorLogRecordedKey = "relay_error_log_recorded"
+
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	switch info.RelayMode {
@@ -396,8 +398,65 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
 		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		c.Set(relayErrorLogRecordedKey, true)
+	}
+}
+
+func recordTaskErrorLogIfMissing(c *gin.Context, taskErr *dto.TaskError) {
+	if taskErr == nil || !constant.ErrorLogEnabled {
+		return
+	}
+	if recorded, ok := c.Get(relayErrorLogRecordedKey); ok {
+		if value, ok := recorded.(bool); ok && value {
+			return
+		}
 	}
 
+	err := taskErr.Error
+	if err == nil {
+		err = errors.New(taskErr.Message)
+	}
+	newAPIError := types.NewOpenAIError(err, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode)
+	if !types.IsRecordErrorLog(newAPIError) {
+		return
+	}
+
+	userId := c.GetInt("id")
+	tokenName := c.GetString("token_name")
+	modelName := c.GetString("original_model")
+	tokenId := c.GetInt("token_id")
+	userGroup := c.GetString("group")
+	channelId := c.GetInt("channel_id")
+	other := make(map[string]interface{})
+	if c.Request != nil && c.Request.URL != nil {
+		other["request_path"] = c.Request.URL.Path
+	}
+	other["is_task"] = true
+	other["task_error_code"] = taskErr.Code
+	other["error_type"] = newAPIError.GetErrorType()
+	other["error_code"] = newAPIError.GetErrorCode()
+	other["status_code"] = taskErr.StatusCode
+	other["channel_id"] = channelId
+	other["channel_name"] = c.GetString("channel_name")
+	other["channel_type"] = c.GetInt("channel_type")
+
+	adminInfo := make(map[string]interface{})
+	adminInfo["use_channel"] = c.GetStringSlice("use_channel")
+	isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
+	if isMultiKey {
+		adminInfo["is_multi_key"] = true
+		adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
+	}
+	service.AppendChannelAffinityAdminInfo(c, adminInfo)
+	other["admin_info"] = adminInfo
+
+	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
+	if startTime.IsZero() {
+		startTime = time.Now()
+	}
+	useTimeSeconds := int(time.Since(startTime).Seconds())
+	model.RecordErrorLog(c, userId, channelId, modelName, tokenName, newAPIError.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+	c.Set(relayErrorLogRecordedKey, true)
 }
 
 func RelayMidjourney(c *gin.Context) {
@@ -470,7 +529,7 @@ func RelayNotFound(c *gin.Context) {
 func RelayTaskFetch(c *gin.Context) {
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, &dto.TaskError{
+		respondTaskError(c, &dto.TaskError{
 			Code:       "gen_relay_info_failed",
 			Message:    err.Error(),
 			StatusCode: http.StatusInternalServerError,
@@ -485,7 +544,7 @@ func RelayTaskFetch(c *gin.Context) {
 func RelayTask(c *gin.Context) {
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, &dto.TaskError{
+		respondTaskError(c, &dto.TaskError{
 			Code:       "gen_relay_info_failed",
 			Message:    err.Error(),
 			StatusCode: http.StatusInternalServerError,
@@ -607,6 +666,7 @@ func RelayTask(c *gin.Context) {
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）
 func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
+	recordTaskErrorLogIfMissing(c, taskErr)
 	if taskErr.StatusCode == http.StatusTooManyRequests {
 		taskErr.Message = "当前分组上游负载已饱和，请稍后再试"
 	}

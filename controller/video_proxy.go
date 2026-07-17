@@ -30,6 +30,18 @@ func videoProxyError(c *gin.Context, status int, errType, message string) {
 	})
 }
 
+func videoProxyAuthorizationHeader(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	lower := strings.ToLower(key)
+	if strings.HasPrefix(lower, "bearer ") || strings.HasPrefix(lower, "basic ") {
+		return key
+	}
+	return "Bearer " + key
+}
+
 func VideoProxy(c *gin.Context) {
 	taskID := c.Param("task_id")
 	if taskID == "" {
@@ -106,9 +118,9 @@ func VideoProxy(c *gin.Context) {
 			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Vertex video URL")
 			return
 		}
-	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora, constant.ChannelTypeGrokVideo:
+	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora, constant.ChannelTypeGrokVideo, constant.ChannelTypeLconVideo:
 		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
-		req.Header.Set("Authorization", "Bearer "+channel.Key)
+		req.Header.Set("Authorization", videoProxyAuthorizationHeader(channel.Key))
 	default:
 		// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
 		videoURL = task.GetResultURL()

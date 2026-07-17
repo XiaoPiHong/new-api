@@ -155,6 +155,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'runninghub-rhart-video-g,runninghub-rhart-video-v3.1-fast,runninghub-rhart-video/sparkvideo-2.0-fast',
     },
   },
+  60: {
+    id: 60,
+    name: CHANNEL_TYPES[60],
+    icon: 'openai',
+    defaultBaseUrl: 'https://n.lconai.com',
+    hints: {
+      baseUrl: 'Default: https://n.lconai.com',
+      key: 'Bearer API key',
+      models: 'grok-video-3-pro',
+    },
+  },
 }
 
 /**

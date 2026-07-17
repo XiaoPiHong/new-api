@@ -199,6 +199,11 @@ export const CHANNEL_OPTIONS = [
     color: 'purple',
     label: 'RunningHub',
   },
+  {
+    value: 60,
+    color: 'purple',
+    label: 'LconVideo',
+  },
 ];
 
 // Channel types that support upstream model list fetching in UI.

@@ -39,9 +39,13 @@ type submitResponse struct {
 	TaskId       string `json:"task_id,omitempty"`
 	Status       string `json:"status,omitempty"`
 	Data         struct {
-		TaskID string `json:"taskId,omitempty"`
-		TaskId string `json:"task_id,omitempty"`
-		Status string `json:"status,omitempty"`
+		TaskID       string `json:"taskId,omitempty"`
+		TaskId       string `json:"task_id,omitempty"`
+		Status       string `json:"status,omitempty"`
+		Message      string `json:"message,omitempty"`
+		Msg          string `json:"msg,omitempty"`
+		ErrorCode    string `json:"errorCode,omitempty"`
+		ErrorMessage string `json:"errorMessage,omitempty"`
 	} `json:"data,omitempty"`
 }
 
@@ -191,19 +195,19 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	}
 
 	if !isSuccessCode(result.Code) {
-		message := firstNonEmpty(result.ErrorMessage, result.Message, result.Msg, "task submit failed")
+		message := submitFailureReason(result, "task submit failed")
 		taskErr = service.TaskErrorWrapperLocal(fmt.Errorf("%s", message), "task_failed", http.StatusBadRequest)
 		return
 	}
-	if isFailureStatus(result.Status) {
-		message := firstNonEmpty(result.ErrorMessage, result.Message, result.Msg, "task submit failed")
+	if isFailureStatus(firstNonEmpty(result.Status, result.Data.Status)) || hasSubmitError(result) {
+		message := submitFailureReason(result, "task submit failed")
 		taskErr = service.TaskErrorWrapperLocal(fmt.Errorf("%s", message), "task_failed", http.StatusBadRequest)
 		return
 	}
 
 	upstreamID := firstNonEmpty(result.TaskID, result.TaskId, result.Data.TaskID, result.Data.TaskId)
 	if upstreamID == "" {
-		message := firstNonEmpty(result.Message, result.Msg, "task_id is empty")
+		message := firstNonEmpty(result.Message, result.Data.Message, result.Msg, result.Data.Msg, "task_id is empty")
 		taskErr = service.TaskErrorWrapperLocal(fmt.Errorf("%s", message), "invalid_response", http.StatusInternalServerError)
 		return
 	}
@@ -476,6 +480,19 @@ func resultURLFromAny(value any) string {
 
 func failureReason(task queryResponse) string {
 	return firstNonEmpty(task.Data.ErrorMessage, task.Data.Message, task.Data.Msg, task.Data.Error, task.ErrorMessage, task.Message, task.Msg, task.Error, "task failed")
+}
+
+func hasSubmitError(result submitResponse) bool {
+	return firstNonEmpty(result.ErrorCode, result.ErrorMessage, result.Data.ErrorCode, result.Data.ErrorMessage) != ""
+}
+
+func submitFailureReason(result submitResponse, fallback string) string {
+	message := firstNonEmpty(result.ErrorMessage, result.Data.ErrorMessage, result.Message, result.Data.Message, result.Msg, result.Data.Msg, fallback)
+	errorCode := firstNonEmpty(result.ErrorCode, result.Data.ErrorCode)
+	if errorCode == "" || strings.Contains(message, errorCode) {
+		return message
+	}
+	return fmt.Sprintf("%s (errorCode=%s)", message, errorCode)
 }
 
 func isFailureStatus(status string) bool {

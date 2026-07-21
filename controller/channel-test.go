@@ -57,6 +57,48 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	return normalized
 }
 
+func isChannelTestImageGenerationModel(channel *model.Channel, modelName string) bool {
+	lowerModelName := strings.ToLower(strings.TrimSpace(modelName))
+	if strings.Contains(lowerModelName, "gpt-image") {
+		return true
+	}
+	return channel != nil &&
+		channel.Type == constant.ChannelTypeVolcEngine &&
+		strings.Contains(lowerModelName, "seedream")
+}
+
+func isChannelTestRerankModel(modelName string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(modelName)), "rerank")
+}
+
+func isChannelTestEmbeddingModel(channel *model.Channel, modelName string) bool {
+	lowerModelName := strings.ToLower(strings.TrimSpace(modelName))
+	return strings.Contains(lowerModelName, "embedding") ||
+		strings.HasPrefix(lowerModelName, "m3e") ||
+		strings.Contains(lowerModelName, "bge-") ||
+		strings.Contains(lowerModelName, "embed") ||
+		channel != nil && channel.Type == constant.ChannelTypeMokaAI
+}
+
+func inferChannelTestEndpointType(channel *model.Channel, modelName string) constant.EndpointType {
+	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
+		return constant.EndpointTypeOpenAIResponseCompact
+	}
+	if isChannelTestRerankModel(modelName) {
+		return constant.EndpointTypeJinaRerank
+	}
+	if isChannelTestImageGenerationModel(channel, modelName) {
+		return constant.EndpointTypeImageGeneration
+	}
+	if isChannelTestEmbeddingModel(channel, modelName) {
+		return constant.EndpointTypeEmbeddings
+	}
+	if strings.Contains(strings.ToLower(strings.TrimSpace(modelName)), "codex") {
+		return constant.EndpointTypeOpenAIResponse
+	}
+	return constant.EndpointTypeOpenAI
+}
+
 func testChannel(channel *model.Channel, testModel string, endpointType string, isStream bool) testResult {
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
@@ -105,34 +147,8 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			requestPath = endpointInfo.Path
 		}
 	} else {
-		// 如果没有指定端点类型，使用原有的自动检测逻辑
-
-		if strings.Contains(strings.ToLower(testModel), "rerank") {
-			requestPath = "/v1/rerank"
-		}
-
-		// 先判断是否为 Embedding 模型
-		if strings.Contains(strings.ToLower(testModel), "embedding") ||
-			strings.HasPrefix(testModel, "m3e") || // m3e 系列模型
-			strings.Contains(testModel, "bge-") || // bge 系列模型
-			strings.Contains(testModel, "embed") ||
-			channel.Type == constant.ChannelTypeMokaAI { // 其他 embedding 模型
-			requestPath = "/v1/embeddings" // 修改请求路径
-		}
-
-		// VolcEngine 图像生成模型
-		if channel.Type == constant.ChannelTypeVolcEngine && strings.Contains(testModel, "seedream") {
-			requestPath = "/v1/images/generations"
-		}
-
-		// responses-only models
-		if strings.Contains(strings.ToLower(testModel), "codex") {
-			requestPath = "/v1/responses"
-		}
-
-		// responses compaction models (must use /v1/responses/compact)
-		if strings.HasSuffix(testModel, ratio_setting.CompactModelSuffix) {
-			requestPath = "/v1/responses/compact"
+		if endpointInfo, ok := common.GetDefaultEndpointInfo(inferChannelTestEndpointType(channel, testModel)); ok {
+			requestPath = endpointInfo.Path
 		}
 	}
 	if strings.HasPrefix(requestPath, "/v1/responses/compact") {
@@ -747,37 +763,33 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		}
 	}
 
-	// 自动检测逻辑（保持原有行为）
-	if strings.Contains(strings.ToLower(model), "rerank") {
+	// 自动检测逻辑
+	switch inferChannelTestEndpointType(channel, model) {
+	case constant.EndpointTypeJinaRerank:
 		return &dto.RerankRequest{
 			Model:     model,
 			Query:     "What is Deep Learning?",
 			Documents: []any{"Deep Learning is a subset of machine learning.", "Machine learning is a field of artificial intelligence."},
 			TopN:      lo.ToPtr(2),
 		}
-	}
-
-	// 先判断是否为 Embedding 模型
-	if strings.Contains(strings.ToLower(model), "embedding") ||
-		strings.HasPrefix(model, "m3e") ||
-		strings.Contains(model, "bge-") {
-		// 返回 EmbeddingRequest
+	case constant.EndpointTypeImageGeneration:
+		return &dto.ImageRequest{
+			Model:  model,
+			Prompt: "a cute cat",
+			N:      lo.ToPtr(uint(1)),
+			Size:   "1024x1024",
+		}
+	case constant.EndpointTypeEmbeddings:
 		return &dto.EmbeddingRequest{
 			Model: model,
 			Input: []any{"hello world"},
 		}
-	}
-
-	// Responses compaction models (must use /v1/responses/compact)
-	if strings.HasSuffix(model, ratio_setting.CompactModelSuffix) {
+	case constant.EndpointTypeOpenAIResponseCompact:
 		return &dto.OpenAIResponsesCompactionRequest{
 			Model: model,
 			Input: testResponsesInput,
 		}
-	}
-
-	// Responses-only models (e.g. codex series)
-	if strings.Contains(strings.ToLower(model), "codex") {
+	case constant.EndpointTypeOpenAIResponse:
 		return &dto.OpenAIResponsesRequest{
 			Model:  model,
 			Input:  json.RawMessage(`[{"role":"user","content":"hi"}]`),
@@ -908,6 +920,12 @@ func testAllChannels(notify bool) error {
 			result := testChannel(channel, "", "", shouldUseStreamForAutomaticChannelTest(channel))
 			tok := time.Now()
 			milliseconds := tok.Sub(tik).Milliseconds()
+
+			if result.localErr != nil && result.newAPIError == nil {
+				common.SysLog(fmt.Sprintf("channel test skipped: channel_id=%d name=%s type=%d err=%v", channel.Id, channel.Name, channel.Type, result.localErr))
+				time.Sleep(common.RequestInterval)
+				continue
+			}
 
 			shouldBanChannel := false
 			newAPIError := result.newAPIError

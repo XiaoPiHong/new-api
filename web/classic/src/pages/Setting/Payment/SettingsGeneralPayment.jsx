@@ -28,6 +28,19 @@ import {
 } from '../../../helpers';
 import { useTranslation } from 'react-i18next';
 
+/** 支付返回地址允许留空；填写时必须是浏览器可跳转的完整 HTTP(S) URL。 */
+const isValidPaymentReturnUrl = (value) => {
+  const normalizedValue = value.trim();
+  if (normalizedValue === '') return true;
+
+  try {
+    const url = new URL(normalizedValue);
+    return ['http:', 'https:'].includes(url.protocol) && Boolean(url.host);
+  } catch {
+    return false;
+  }
+};
+
 export default function SettingsGeneralPayment(props) {
   const { t } = useTranslation();
   const sectionTitle = props.hideSectionTitle ? undefined : t('通用设置');
@@ -35,6 +48,7 @@ export default function SettingsGeneralPayment(props) {
   const [inputs, setInputs] = useState({
     ServerAddress: '',
     CustomCallbackAddress: '',
+    TopUpReturnURL: '',
     TopupGroupRatio: '',
     PayMethods: '',
     AmountOptions: '',
@@ -48,6 +62,7 @@ export default function SettingsGeneralPayment(props) {
       const currentInputs = {
         ServerAddress: props.options.ServerAddress || '',
         CustomCallbackAddress: props.options.CustomCallbackAddress || '',
+        TopUpReturnURL: props.options.TopUpReturnURL || '',
         TopupGroupRatio: props.options.TopupGroupRatio || '',
         PayMethods: props.options.PayMethods || '',
         AmountOptions: props.options.AmountOptions || '',
@@ -64,6 +79,11 @@ export default function SettingsGeneralPayment(props) {
   };
 
   const submitGeneralSettings = async () => {
+    if (!isValidPaymentReturnUrl(inputs.TopUpReturnURL)) {
+      showError(t('支付返回地址必须是有效的 HTTP 或 HTTPS 地址'));
+      return;
+    }
+
     if (
       originInputs.TopupGroupRatio !== inputs.TopupGroupRatio &&
       !verifyJSON(inputs.TopupGroupRatio)
@@ -111,6 +131,13 @@ export default function SettingsGeneralPayment(props) {
         options.push({
           key: 'CustomCallbackAddress',
           value: removeTrailingSlash(inputs.CustomCallbackAddress),
+        });
+      }
+      if (originInputs.TopUpReturnURL !== inputs.TopUpReturnURL) {
+        // 该地址只控制付款后的浏览器回跳，到账仍由异步通知处理。
+        options.push({
+          key: 'payment_setting.top_up_return_url',
+          value: inputs.TopUpReturnURL.trim(),
         });
       }
       if (originInputs.TopupGroupRatio !== inputs.TopupGroupRatio) {
@@ -189,11 +216,13 @@ export default function SettingsGeneralPayment(props) {
               />
             </Col>
             <Col xs={24} sm={24} md={12} lg={12} xl={12}>
-              <Form.TextArea
-                field='TopupGroupRatio'
-                label={t('充值分组倍率')}
-                placeholder={t('为一个 JSON 文本，键为组名称，值为倍率')}
-                autosize
+              <Form.Input
+                field='TopUpReturnURL'
+                label={t('支付返回地址')}
+                placeholder='https://ai.example.com/topup?payment=return'
+                extraText={t(
+                  '用户支付完成后浏览器返回的地址，支付结果仍以支付网关异步通知为准',
+                )}
               />
             </Col>
           </Row>
@@ -203,12 +232,25 @@ export default function SettingsGeneralPayment(props) {
           >
             <Col xs={24} sm={24} md={12} lg={12} xl={12}>
               <Form.TextArea
+                field='TopupGroupRatio'
+                label={t('充值分组倍率')}
+                placeholder={t('为一个 JSON 文本，键为组名称，值为倍率')}
+                autosize
+              />
+            </Col>
+            <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+              <Form.TextArea
                 field='PayMethods'
                 label={t('充值方式设置')}
                 placeholder={t('为一个 JSON 文本')}
                 autosize
               />
             </Col>
+          </Row>
+          <Row
+            gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+            style={{ marginTop: 16 }}
+          >
             <Col xs={24} sm={24} md={12} lg={12} xl={12}>
               <Form.TextArea
                 field='AmountOptions'
@@ -222,9 +264,7 @@ export default function SettingsGeneralPayment(props) {
                 )}
               />
             </Col>
-          </Row>
-          <Row style={{ marginTop: 16 }}>
-            <Col span={24}>
+            <Col xs={24} sm={24} md={12} lg={12} xl={12}>
               <Form.TextArea
                 field='AmountDiscount'
                 label={t('充值金额折扣配置')}

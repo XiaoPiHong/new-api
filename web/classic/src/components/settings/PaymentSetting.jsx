@@ -41,6 +41,7 @@ const PaymentSetting = () => {
     MinTopUp: 1,
     TopupGroupRatio: '',
     CustomCallbackAddress: '',
+    TopUpReturnURL: '',
     PayMethods: '',
     AmountOptions: '',
     AmountDiscount: '',
@@ -145,6 +146,10 @@ const PaymentSetting = () => {
             } catch (error) {
               newInputs['AmountDiscount'] = item.value;
             }
+            break;
+          case 'payment_setting.top_up_return_url':
+            // 将后端配置键映射成 classic 支付表单使用的字段名。
+            newInputs['TopUpReturnURL'] = item.value;
             break;
           case 'payment_setting.compliance_confirmed':
             newInputs[item.key] = toBoolean(item.value);

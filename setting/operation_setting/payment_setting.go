@@ -5,6 +5,8 @@ import "github.com/QuantumNous/new-api/setting/config"
 type PaymentSetting struct {
 	AmountOptions  []int           `json:"amount_options"`
 	AmountDiscount map[int]float64 `json:"amount_discount"` // 充值金额对应的折扣，例如 100 元 0.9 表示 100 元充值享受 9 折优惠
+	// TopUpReturnURL 是用户完成支付后的浏览器返回地址；支付结果仍以支付网关异步通知为准。
+	TopUpReturnURL string `json:"top_up_return_url"`
 
 	ComplianceConfirmed    bool   `json:"compliance_confirmed"`
 	ComplianceTermsVersion string `json:"compliance_terms_version"`

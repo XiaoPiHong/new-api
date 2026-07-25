@@ -3,6 +3,8 @@ package model
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -41,8 +43,10 @@ const (
 
 var (
 	ErrPaymentMethodMismatch = errors.New("payment method mismatch")
+	ErrTopUpAmountMismatch   = errors.New("topup amount mismatch")
 	ErrTopUpNotFound         = errors.New("topup not found")
 	ErrTopUpStatusInvalid    = errors.New("topup status invalid")
+	ErrTopUpUserNotFound     = errors.New("topup user not found")
 )
 
 func (topUp *TopUp) Insert() error {
@@ -75,6 +79,119 @@ func GetTopUpByTradeNo(tradeNo string) *TopUp {
 		return nil
 	}
 	return topUp
+}
+
+// CompleteEpayTopUp verifies the callback against the stored order and atomically
+// marks the order paid while increasing the user's quota. The boolean result is
+// true only when this call performs the credit; completed orders are idempotent.
+func CompleteEpayTopUp(tradeNo string, callbackPaymentMethod string, callbackMoneyText string, callerIp string) (bool, error) {
+	tradeNo = strings.TrimSpace(tradeNo)
+	callbackPaymentMethod = strings.TrimSpace(callbackPaymentMethod)
+	callbackMoneyText = strings.TrimSpace(callbackMoneyText)
+	if tradeNo == "" || callbackPaymentMethod == "" || callbackMoneyText == "" {
+		return false, errors.New("invalid epay callback fields")
+	}
+
+	callbackMoney, err := decimal.NewFromString(callbackMoneyText)
+	if err != nil || callbackMoney.LessThanOrEqual(decimal.Zero) || !callbackMoney.Equal(callbackMoney.Round(2)) {
+		return false, ErrTopUpAmountMismatch
+	}
+
+	refCol := "`trade_no`"
+	if common.UsingPostgreSQL {
+		refCol = `"trade_no"`
+	}
+
+	var completed bool
+	var topUp TopUp
+	var quotaToAdd int
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where(refCol+" = ?", tradeNo).First(&topUp).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrTopUpNotFound
+			}
+			return err
+		}
+
+		if topUp.PaymentProvider != PaymentProviderEpay || topUp.PaymentMethod != callbackPaymentMethod {
+			return ErrPaymentMethodMismatch
+		}
+
+		// 订单创建时使用 FormatFloat(..., 2) 将金额发送给支付端；这里复用同一
+		// 格式化规则，既兼容旧的 float 存量数据，也避免两套舍入规则产生误判。
+		expectedMoney, err := decimal.NewFromString(strconv.FormatFloat(topUp.Money, 'f', 2, 64))
+		if err != nil || expectedMoney.LessThanOrEqual(decimal.Zero) || !callbackMoney.Equal(expectedMoney) {
+			return ErrTopUpAmountMismatch
+		}
+
+		if topUp.Status == common.TopUpStatusSuccess {
+			return nil
+		}
+		if topUp.Status != common.TopUpStatusPending {
+			return ErrTopUpStatusInvalid
+		}
+
+		quota := decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+		maxInt := decimal.NewFromInt(int64(^uint(0) >> 1))
+		if quota.LessThanOrEqual(decimal.Zero) || quota.GreaterThan(maxInt) {
+			return errors.New("invalid topup quota")
+		}
+		quotaToAdd = int(quota.IntPart())
+		if quotaToAdd <= 0 {
+			return errors.New("invalid topup quota")
+		}
+
+		// The conditional status update is the cross-instance idempotency guard.
+		// If another callback has already claimed the pending order, this request
+		// must not credit the user again.
+		result := tx.Model(&TopUp{}).
+			Where("id = ? AND status = ?", topUp.Id, common.TopUpStatusPending).
+			Updates(map[string]interface{}{
+				"status":        common.TopUpStatusSuccess,
+				"complete_time": common.GetTimestamp(),
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrTopUpStatusInvalid
+		}
+
+		result = tx.Model(&User{}).
+			Where("id = ?", topUp.UserId).
+			Update("quota", gorm.Expr("quota + ?", quotaToAdd))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrTopUpUserNotFound
+		}
+
+		completed = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	if !completed {
+		return false, nil
+	}
+
+	// The database is authoritative. Cache invalidation happens only after the
+	// transaction commits, so a Redis failure can never roll back or duplicate a
+	// successful payment credit.
+	if err := InvalidateUserCache(topUp.UserId); err != nil {
+		common.SysLog(fmt.Sprintf("failed to invalidate user cache after epay topup, user_id=%d: %s", topUp.UserId, err.Error()))
+	}
+	RecordTopupLog(
+		topUp.UserId,
+		fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%.2f", logger.FormatQuota(quotaToAdd), topUp.Money),
+		callerIp,
+		topUp.PaymentMethod,
+		callbackPaymentMethod,
+	)
+
+	return true, nil
 }
 
 func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, targetStatus string) error {

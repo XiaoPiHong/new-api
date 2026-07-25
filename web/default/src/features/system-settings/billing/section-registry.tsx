@@ -138,6 +138,7 @@ const BILLING_SECTIONS = [
           Price: settings.Price,
           MinTopUp: settings.MinTopUp,
           CustomCallbackAddress: settings.CustomCallbackAddress,
+          TopUpReturnURL: settings['payment_setting.top_up_return_url'],
           PayMethods: settings.PayMethods,
           AmountOptions: settings['payment_setting.amount_options'],
           AmountDiscount: settings['payment_setting.amount_discount'],

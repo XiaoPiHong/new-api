@@ -1,10 +1,12 @@
 package model
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,6 +87,86 @@ func getUserQuotaForPaymentGuardTest(t *testing.T, userID int) int {
 	var user User
 	require.NoError(t, DB.Select("quota").Where("id = ?", userID).First(&user).Error)
 	return user.Quota
+}
+
+func insertEpayTopUpForPaymentGuardTest(t *testing.T, tradeNo string, userID int, money float64) {
+	t.Helper()
+	topUp := &TopUp{
+		UserId:          userID,
+		Amount:          2,
+		Money:           money,
+		TradeNo:         tradeNo,
+		PaymentMethod:   "alipay",
+		PaymentProvider: PaymentProviderEpay,
+		Status:          common.TopUpStatusPending,
+		CreateTime:      time.Now().Unix(),
+	}
+	require.NoError(t, topUp.Insert())
+}
+
+func TestCompleteEpayTopUp_CreditsOnceAndKeepsAdminQuotaAdjustmentWorking(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 80, 100)
+	insertEpayTopUpForPaymentGuardTest(t, "epay-credit-once", 80, 9.99)
+
+	completed, err := CompleteEpayTopUp("epay-credit-once", "alipay", "9.99", "127.0.0.1")
+	require.NoError(t, err)
+	require.True(t, completed)
+
+	expectedCredit := int(decimal.NewFromInt(2).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+	assert.Equal(t, 100+expectedCredit, getUserQuotaForPaymentGuardTest(t, 80))
+	topUp := GetTopUpByTradeNo("epay-credit-once")
+	require.NotNil(t, topUp)
+	assert.Equal(t, common.TopUpStatusSuccess, topUp.Status)
+	assert.Positive(t, topUp.CompleteTime)
+
+	completed, err = CompleteEpayTopUp("epay-credit-once", "alipay", "9.99", "127.0.0.1")
+	require.NoError(t, err)
+	assert.False(t, completed)
+	assert.Equal(t, 100+expectedCredit, getUserQuotaForPaymentGuardTest(t, 80))
+
+	require.NoError(t, IncreaseUserQuota(80, 321, true))
+	assert.Equal(t, 100+expectedCredit+321, getUserQuotaForPaymentGuardTest(t, 80))
+}
+
+func TestCompleteEpayTopUp_RejectsCallbackMismatch(t *testing.T) {
+	testCases := []struct {
+		name          string
+		paymentMethod string
+		money         string
+		expectedError error
+	}{
+		{name: "payment method", paymentMethod: "wxpay", money: "9.99", expectedError: ErrPaymentMethodMismatch},
+		{name: "amount", paymentMethod: "alipay", money: "9.98", expectedError: ErrTopUpAmountMismatch},
+		{name: "fractional cent", paymentMethod: "alipay", money: "9.991", expectedError: ErrTopUpAmountMismatch},
+	}
+
+	for index, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			truncateTables(t)
+			userID := 81 + index
+			tradeNo := fmt.Sprintf("epay-mismatch-%d", index)
+			insertUserForPaymentGuardTest(t, userID, 100)
+			insertEpayTopUpForPaymentGuardTest(t, tradeNo, userID, 9.99)
+
+			completed, err := CompleteEpayTopUp(tradeNo, tc.paymentMethod, tc.money, "127.0.0.1")
+			require.ErrorIs(t, err, tc.expectedError)
+			assert.False(t, completed)
+			assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, tradeNo))
+			assert.Equal(t, 100, getUserQuotaForPaymentGuardTest(t, userID))
+		})
+	}
+}
+
+func TestCompleteEpayTopUp_RollsBackWhenUserDoesNotExist(t *testing.T) {
+	truncateTables(t)
+	insertEpayTopUpForPaymentGuardTest(t, "epay-missing-user", 9999, 9.99)
+
+	completed, err := CompleteEpayTopUp("epay-missing-user", "alipay", "9.99", "127.0.0.1")
+	require.ErrorIs(t, err, ErrTopUpUserNotFound)
+	assert.False(t, completed)
+	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, "epay-missing-user"))
 }
 
 func TestRechargeWaffoPancake_RejectsMismatchedPaymentMethod(t *testing.T) {

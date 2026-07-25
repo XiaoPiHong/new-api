@@ -89,6 +89,11 @@ const paymentSchema = z.object({
     if (!trimmed) return true
     return /^https?:\/\//.test(trimmed)
   }, 'Provide a valid URL starting with http:// or https://'),
+  TopUpReturnURL: z.string().refine((value) => {
+    const trimmed = value.trim()
+    if (!trimmed) return true
+    return /^https?:\/\//.test(trimmed)
+  }, 'Provide a valid URL starting with http:// or https://'),
   PayMethods: z.string().superRefine((value, ctx) => {
     const error = getJsonError(value)
     if (error) {
@@ -292,6 +297,7 @@ export function PaymentSettingsSection({
       Price: values.Price,
       MinTopUp: values.MinTopUp,
       CustomCallbackAddress: removeTrailingSlash(values.CustomCallbackAddress),
+      TopUpReturnURL: values.TopUpReturnURL.trim(),
       PayMethods: values.PayMethods.trim(),
       AmountOptions: values.AmountOptions.trim(),
       AmountDiscount: values.AmountDiscount.trim(),
@@ -316,6 +322,7 @@ export function PaymentSettingsSection({
       CustomCallbackAddress: removeTrailingSlash(
         initialRef.current.CustomCallbackAddress
       ),
+      TopUpReturnURL: initialRef.current.TopUpReturnURL.trim(),
       PayMethods: initialRef.current.PayMethods.trim(),
       AmountOptions: initialRef.current.AmountOptions.trim(),
       AmountDiscount: initialRef.current.AmountDiscount.trim(),
@@ -358,6 +365,13 @@ export function PaymentSettingsSection({
       updates.push({
         key: 'CustomCallbackAddress',
         value: sanitized.CustomCallbackAddress,
+      })
+    }
+
+    if (sanitized.TopUpReturnURL !== initial.TopUpReturnURL) {
+      updates.push({
+        key: 'payment_setting.top_up_return_url',
+        value: sanitized.TopUpReturnURL,
       })
     }
 
@@ -498,8 +512,8 @@ export function PaymentSettingsSection({
             {t('Confirmed at {{time}} by user #{{userId}}', {
               time: complianceDefaults.confirmedAt
                 ? new Date(
-                    complianceDefaults.confirmedAt * 1000
-                  ).toLocaleString()
+                  complianceDefaults.confirmedAt * 1000
+                ).toLocaleString()
                 : '-',
               userId: complianceDefaults.confirmedBy || '-',
             })}
@@ -819,6 +833,24 @@ export function PaymentSettingsSection({
                         'Optional callback override. Leave blank to use server address'
                       )}
                     </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='TopUpReturnURL'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Payment return URL')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='https://ai.example.com/topup?payment=return'
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

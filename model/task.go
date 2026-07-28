@@ -104,9 +104,11 @@ type TaskPrivateData struct {
 	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
 	BillingTraceId string `json:"billing_trace_id,omitempty"` // 外部工作流节点账单追踪 ID
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
-	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
+	BillingSource  string              `json:"billing_source,omitempty"`  // wallet / subscription / workflow_reservation
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
 	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
+	WorkflowQuotaReservationId string  `json:"workflow_quota_reservation_id,omitempty"` // 工作流预占主单
+	WorkflowQuotaItemKey       string  `json:"workflow_quota_item_key,omitempty"`       // 对应工作流节点
 	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
 }
 

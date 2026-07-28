@@ -281,6 +281,9 @@ func migrateDB() error {
 		&CustomOAuthProvider{},
 		&UserOAuthBinding{},
 		&PerfMetric{},
+		// 工作流额度预占使用独立表，不修改现有用户、Token 和普通计费表结构。
+		&WorkflowQuotaReservation{},
+		&WorkflowQuotaReservationItem{},
 	)
 	if err != nil {
 		return err
@@ -330,6 +333,9 @@ func migrateDBFast() error {
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
 		{&UserOAuthBinding{}, "UserOAuthBinding"},
 		{&PerfMetric{}, "PerfMetric"},
+		// 工作流额度预占表是增量能力，普通请求不会写入这两张表。
+		{&WorkflowQuotaReservation{}, "WorkflowQuotaReservation"},
+		{&WorkflowQuotaReservationItem{}, "WorkflowQuotaReservationItem"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))

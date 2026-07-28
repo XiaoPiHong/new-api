@@ -132,6 +132,10 @@ type RelayInfo struct {
 	// BillingSource indicates whether this request is billed from wallet quota or subscription.
 	// "" or "wallet" => wallet; "subscription" => subscription
 	BillingSource string
+	// WorkflowQuotaReservationId / WorkflowQuotaItemKey 只在显式预占请求中存在。
+	// 异步任务会把它们保存到 Task.PrivateData，供后续差额结算和退款使用。
+	WorkflowQuotaReservationId string
+	WorkflowQuotaItemKey       string
 	// SubscriptionId is the user_subscriptions.id used when BillingSource == "subscription"
 	SubscriptionId int
 	// SubscriptionPreConsumed is the amount pre-consumed on subscription item (quota units or 1)

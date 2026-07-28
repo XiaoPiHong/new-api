@@ -12,7 +12,7 @@ import (
 
 // FundingSource 抽象了预扣费的资金来源。
 type FundingSource interface {
-	// Source 返回资金来源标识："wallet" 或 "subscription"
+	// Source 返回资金来源标识：钱包、订阅或工作流额度预占。
 	Source() string
 	// PreConsume 从该资金来源预扣 amount 额度
 	PreConsume(amount int) error
@@ -20,6 +20,89 @@ type FundingSource interface {
 	Settle(delta int) error
 	// Refund 退还所有预扣费
 	Refund() error
+}
+
+// ---------------------------------------------------------------------------
+// WorkflowReservationFunding — 工作流预占资金来源
+// ---------------------------------------------------------------------------
+
+// WorkflowReservationFunding 不直接增减钱包额度。
+// 整个工作流的额度已经在任务开始前一次性扣除，这里只负责节点认领和实际消费登记。
+type WorkflowReservationFunding struct {
+	reservationId string
+	itemKey        string
+	userId         int
+	tokenId        int
+	requestId      string
+	preConsumed    int
+	claimed        bool
+}
+
+func (w *WorkflowReservationFunding) Source() string { return BillingSourceWorkflowReservation }
+
+// PreConsume 在调用上游前认领节点预算，相同 requestId 重试时保持幂等。
+func (w *WorkflowReservationFunding) PreConsume(amount int) error {
+	if err := model.ClaimWorkflowQuotaItem(
+		w.reservationId,
+		w.itemKey,
+		w.userId,
+		w.tokenId,
+		amount,
+		w.requestId,
+	); err != nil {
+		return err
+	}
+	w.preConsumed = amount
+	w.claimed = true
+	return nil
+}
+
+// Settle 登记节点最终消费；钱包余额已预扣，因此这里只更新预占主单和明细。
+func (w *WorkflowReservationFunding) Settle(delta int) error {
+	actualQuota := w.preConsumed + delta
+	if err := model.SettleWorkflowQuotaItem(
+		w.reservationId,
+		w.itemKey,
+		w.userId,
+		w.tokenId,
+		actualQuota,
+	); err != nil {
+		return err
+	}
+	w.claimed = false
+	return nil
+}
+
+// Refund 撤销尚未结算的节点认领，等待任务终态决定是否整单退款。
+func (w *WorkflowReservationFunding) Refund() error {
+	if !w.claimed {
+		return nil
+	}
+	if err := model.RefundWorkflowQuotaItem(w.reservationId, w.itemKey, w.userId, w.tokenId); err != nil {
+		return err
+	}
+	w.claimed = false
+	return nil
+}
+
+// Reserve 将图片等响应后才能确认的预扣目标限制在该节点报价额度内。
+func (w *WorkflowReservationFunding) Reserve(delta int) error {
+	if delta <= 0 {
+		return nil
+	}
+	targetQuota := w.preConsumed + delta
+	if err := model.ClaimWorkflowQuotaItem(
+		w.reservationId,
+		w.itemKey,
+		w.userId,
+		w.tokenId,
+		targetQuota,
+		w.requestId,
+	); err != nil {
+		return err
+	}
+	w.preConsumed = targetQuota
+	return nil
 }
 
 // ---------------------------------------------------------------------------

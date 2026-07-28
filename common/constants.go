@@ -183,6 +183,9 @@ const (
 	UpstreamRequestIdKey     = "X-Upstream-Request-Id"
 	BillingTraceIdKey        = "X-Billing-Trace-Id"
 	BillingTraceSecretKey    = "X-Billing-Trace-Secret"
+	// 工作流预占头只由受信任的业务服务发送，普通 API 请求不携带时保持原计费流程。
+	WorkflowQuotaReservationIdKey = "X-Workflow-Quota-Reservation-Id"
+	WorkflowQuotaItemKey          = "X-Workflow-Quota-Item-Key"
 )
 
 const (

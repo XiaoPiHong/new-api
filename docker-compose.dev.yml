@@ -30,7 +30,8 @@ services:
       - SQL_DSN=postgresql://root:123456@postgres:5432/new-api
       - REDIS_CONN_STRING=redis://redis
       - TZ=Asia/Shanghai
-      - BATCH_UPDATE_ENABLED=true
+      # 工作流整单预占要求同步更新数据库额度，不能使用批量异步写入。
+      - BATCH_UPDATE_ENABLED=false
       - BILLING_TRACE_SECRET=b0c8e9411057f6ce684cc121e6233dfc456261854756c187fa5ffdf804cc64f8
     depends_on:
       redis:

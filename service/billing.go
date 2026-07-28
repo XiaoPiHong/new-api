@@ -12,6 +12,8 @@ import (
 const (
 	BillingSourceWallet       = "wallet"
 	BillingSourceSubscription = "subscription"
+	// 工作流预占资金已在整单创建时扣除，单节点只登记消费，不再次扣钱包。
+	BillingSourceWorkflowReservation = "workflow_reservation"
 )
 
 // PreConsumeBilling 根据用户计费偏好创建 BillingSession 并执行预扣费。
@@ -60,9 +62,12 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 
 		// 发送额度通知（订阅计费使用订阅剩余额度）
 		if actualQuota != 0 {
-			if relayInfo.BillingSource == BillingSourceSubscription {
+			switch relayInfo.BillingSource {
+			case BillingSourceSubscription:
 				checkAndSendSubscriptionQuotaNotify(relayInfo)
-			} else {
+			case BillingSourceWorkflowReservation:
+				// 钱包可用额度已经在整单预占时扣除，节点结算不重复发送低额度通知。
+			default:
 				checkAndSendQuotaNotify(relayInfo, actualQuota-preConsumed, preConsumed)
 			}
 		}

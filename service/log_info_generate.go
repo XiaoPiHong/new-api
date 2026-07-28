@@ -120,7 +120,7 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other map[string]interf
 	if relayInfo == nil || other == nil {
 		return
 	}
-	// billing_source: "wallet" or "subscription"
+	// billing_source: wallet / subscription / workflow_reservation
 	if relayInfo.BillingSource != "" {
 		other["billing_source"] = relayInfo.BillingSource
 	}
@@ -167,6 +167,11 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other map[string]interf
 		}
 		// Wallet quota is not deducted when billed from subscription.
 		other["wallet_quota_deducted"] = 0
+	}
+	if relayInfo.BillingSource == BillingSourceWorkflowReservation {
+		// 账单 trace 必须保留节点归属，后续退款只能调整这条预占明细。
+		other["workflow_quota_reservation_id"] = relayInfo.WorkflowQuotaReservationId
+		other["workflow_quota_item_key"] = relayInfo.WorkflowQuotaItemKey
 	}
 }
 

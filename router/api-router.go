@@ -326,6 +326,18 @@ func SetApiRouter(router *gin.Engine) {
 			billingTraceRoute.GET("/:trace_id", controller.GetBillingTrace)
 			billingTraceRoute.POST("/:trace_id/refund", controller.RefundBillingTrace)
 		}
+		// 工作流额度预占使用用户自己的 API Token 鉴权，并额外校验业务服务共享密钥。
+		// 独立路由不会改变现有 relay API 的请求协议。
+		workflowQuotaRoute := apiRouter.Group("/workflow-quota/reservations")
+		workflowQuotaRoute.Use(middleware.TokenAuth())
+		{
+			workflowQuotaRoute.POST("", controller.CreateWorkflowQuotaReservation)
+		}
+		// 终态释放只使用服务间共享密钥，不依赖可能已被用户删除的 API Token。
+		workflowQuotaInternalRoute := apiRouter.Group("/workflow-quota/internal/reservations")
+		{
+			workflowQuotaInternalRoute.POST("/:reservation_id/release", controller.ReleaseWorkflowQuotaReservationInternal)
+		}
 		groupRoute := apiRouter.Group("/group")
 		groupRoute.Use(middleware.AdminAuth())
 		{

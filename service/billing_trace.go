@@ -150,7 +150,9 @@ func refundTraceFromConsumeLogs(ctx context.Context, traceId string, quota int, 
 	if err := refundTraceFunding(base, quota); err != nil {
 		return err
 	}
-	if base.TokenId > 0 {
+	// 预占节点退款由预占主单统一返还 Token，这里只处理旧钱包/订阅 trace。
+	_, _, workflowReservation := workflowReservationFromLog(base)
+	if base.TokenId > 0 && !workflowReservation {
 		if token, err := model.GetTokenById(base.TokenId); err == nil {
 			if err := model.IncreaseTokenQuota(base.TokenId, token.Key, quota); err != nil {
 				logger.LogWarn(ctx, fmt.Sprintf("退还 trace %s 令牌额度失败: %s", traceId, err.Error()))
@@ -183,6 +185,10 @@ func refundTraceFromConsumeLogs(ctx context.Context, traceId string, quota int, 
 
 func refundTraceFunding(base *model.Log, quota int) error {
 	other, _ := common.StrToMap(base.Other)
+	if reservationId, itemKey, ok := workflowReservationFromLog(base); ok {
+		// 预占请求的 trace 退款只把节点消费归零，不能直接给钱包和 Token 加额度。
+		return model.AdjustSettledWorkflowQuotaItem(reservationId, itemKey, base.UserId, base.TokenId, 0)
+	}
 	if other != nil && fmt.Sprint(other["billing_source"]) == BillingSourceSubscription {
 		subscriptionId := intFromAny(other["subscription_id"])
 		if subscriptionId > 0 {
@@ -190,6 +196,20 @@ func refundTraceFunding(base *model.Log, quota int) error {
 		}
 	}
 	return model.IncreaseUserQuota(base.UserId, quota, false)
+}
+
+// workflowReservationFromLog 从消费日志恢复预占身份，供人工 trace 退款安全复用。
+func workflowReservationFromLog(base *model.Log) (string, string, bool) {
+	if base == nil {
+		return "", "", false
+	}
+	other, _ := common.StrToMap(base.Other)
+	if other == nil || fmt.Sprint(other["billing_source"]) != BillingSourceWorkflowReservation {
+		return "", "", false
+	}
+	reservationId := strings.TrimSpace(fmt.Sprint(other["workflow_quota_reservation_id"]))
+	itemKey := strings.TrimSpace(fmt.Sprint(other["workflow_quota_item_key"]))
+	return reservationId, itemKey, reservationId != "" && itemKey != ""
 }
 
 func intFromAny(value interface{}) int {

@@ -46,6 +46,12 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["model_ratio"] = info.PriceData.ModelRatio
 	}
 	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
+	other["billing_source"] = info.BillingSource
+	if info.BillingSource == BillingSourceWorkflowReservation {
+		// 异步消费日志携带预占身份，便于轮询结算和审计还原资金流。
+		other["workflow_quota_reservation_id"] = info.WorkflowQuotaReservationId
+		other["workflow_quota_item_key"] = info.WorkflowQuotaItemKey
+	}
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
 	}
@@ -87,21 +93,41 @@ func taskIsSubscription(task *model.Task) bool {
 	return task.PrivateData.BillingSource == BillingSourceSubscription && task.PrivateData.SubscriptionId > 0
 }
 
-// taskAdjustFunding 调整任务的资金来源（钱包或订阅），delta > 0 表示扣费，delta < 0 表示退还。
+// taskIsWorkflowReservation 要求资金源和两个定位字段同时有效，禁止半配置进入预占分支。
+func taskIsWorkflowReservation(task *model.Task) bool {
+	return task.PrivateData.BillingSource == BillingSourceWorkflowReservation &&
+		task.PrivateData.WorkflowQuotaReservationId != "" &&
+		task.PrivateData.WorkflowQuotaItemKey != ""
+}
+
+// taskAdjustFunding 调整任务的资金来源（钱包、订阅或工作流预占）。
+// delta > 0 表示补扣，delta < 0 表示退还。
 func taskAdjustFunding(task *model.Task, delta int) error {
-	if taskIsSubscription(task) {
+	switch {
+	case taskIsWorkflowReservation(task):
+		// 异步任务差额只调整预占明细，最终钱包退款由工作流释放接口统一完成。
+		return model.AdjustSettledWorkflowQuotaItem(
+			task.PrivateData.WorkflowQuotaReservationId,
+			task.PrivateData.WorkflowQuotaItemKey,
+			task.UserId,
+			task.PrivateData.TokenId,
+			task.Quota+delta,
+		)
+	case taskIsSubscription(task):
 		return model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
+	default:
+		if delta > 0 {
+			return model.DecreaseUserQuota(task.UserId, delta, false)
+		}
+		return model.IncreaseUserQuota(task.UserId, -delta, false)
 	}
-	if delta > 0 {
-		return model.DecreaseUserQuota(task.UserId, delta, false)
-	}
-	return model.IncreaseUserQuota(task.UserId, -delta, false)
 }
 
 // taskAdjustTokenQuota 调整任务的令牌额度，delta > 0 表示扣费，delta < 0 表示退还。
 // 需要通过 resolveTokenKey 运行时获取 key（不从 PrivateData 中读取）。
 func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
-	if task.PrivateData.TokenId <= 0 || delta == 0 {
+	// 预占创建时已同步扣过 Token；异步差额只能改预占明细，不能再次动 Token。
+	if task.PrivateData.TokenId <= 0 || delta == 0 || taskIsWorkflowReservation(task) {
 		return
 	}
 	tokenKey := resolveTokenKey(ctx, task.PrivateData.TokenId, task.TaskID)
@@ -133,6 +159,12 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 				other[k] = v
 			}
 		}
+	}
+	if taskIsWorkflowReservation(task) {
+		// 持久化日志元数据，保证账单追踪接口能识别该记录来自预占资金源。
+		other["billing_source"] = BillingSourceWorkflowReservation
+		other["workflow_quota_reservation_id"] = task.PrivateData.WorkflowQuotaReservationId
+		other["workflow_quota_item_key"] = task.PrivateData.WorkflowQuotaItemKey
 	}
 	props := task.Properties
 	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {

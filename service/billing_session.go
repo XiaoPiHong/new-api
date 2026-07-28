@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -46,6 +48,13 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	}
 	delta := actualQuota - s.preConsumedQuota
 	if delta == 0 {
+		// 工作流预占节点即使没有差额，也必须把 ACTIVE 明细提交为 SETTLED。
+		if !s.fundingSettled {
+			if err := s.funding.Settle(0); err != nil {
+				return err
+			}
+			s.fundingSettled = true
+		}
 		s.settled = true
 		return nil
 	}
@@ -58,7 +67,8 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	}
 	// 2) 调整令牌额度
 	var tokenErr error
-	if !s.relayInfo.IsPlayground {
+	// 预占创建时已经扣过 Token；这里只给旧钱包/订阅资金源结算 Token 差额。
+	if !s.relayInfo.IsPlayground && s.funding.Source() != BillingSourceWorkflowReservation {
 		if delta > 0 {
 			tokenErr = model.DecreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, delta)
 		} else {
@@ -114,7 +124,8 @@ func (s *BillingSession) Refund(c *gin.Context) {
 			}
 		}
 		// 2) 退还令牌额度
-		if tokenConsumed > 0 && !isPlayground {
+		// 预占节点失败只撤销节点认领，Token 由整单释放统一返还。
+		if tokenConsumed > 0 && !isPlayground && funding.Source() != BillingSourceWorkflowReservation {
 			if err := model.IncreaseTokenQuota(tokenId, tokenKey, tokenConsumed); err != nil {
 				common.SysLog("error refunding token quota: " + err.Error())
 			}
@@ -139,6 +150,10 @@ func (s *BillingSession) needsRefundLocked() bool {
 	}
 	// 订阅可能在 tokenConsumed=0 时仍预扣了额度
 	if sub, ok := s.funding.(*SubscriptionFunding); ok && sub.preConsumed > 0 {
+		return true
+	}
+	if reservation, ok := s.funding.(*WorkflowReservationFunding); ok && reservation.claimed {
+		// 已认领但尚未结算的预占节点需要在请求失败时恢复为可释放状态。
 		return true
 	}
 	return false
@@ -171,7 +186,10 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 	}
 
 	s.preConsumedQuota += delta
-	s.tokenConsumed += delta
+	// 预占资金源的扩容只调整节点认领额，不能累计为待扣 Token 额度。
+	if s.funding.Source() != BillingSourceWorkflowReservation {
+		s.tokenConsumed += delta
+	}
 	s.extraReserved += delta
 	s.syncRelayInfo()
 	return nil
@@ -196,7 +214,8 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	}
 
 	// ---- 1) 预扣令牌额度 ----
-	if effectiveQuota > 0 {
+	// 整单预占阶段已完成 Token 检查和扣减，节点请求不重复预扣。
+	if effectiveQuota > 0 && s.funding.Source() != BillingSourceWorkflowReservation {
 		if err := PreConsumeTokenQuota(s.relayInfo, effectiveQuota); err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
@@ -217,6 +236,9 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "no active subscription") || strings.Contains(errMsg, "subscription quota insufficient") {
 			return types.NewErrorWithStatusCode(fmt.Errorf("订阅额度不足或未配置订阅: %s", errMsg), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		if s.funding.Source() == BillingSourceWorkflowReservation {
+			return workflowReservationAPIError(err)
 		}
 		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 	}
@@ -248,6 +270,9 @@ func (s *BillingSession) reserveFunding(delta int) error {
 			)
 		}
 		return nil
+	case *WorkflowReservationFunding:
+		// 节点追加预扣只能在自身 quoted_quota 上限内扩容。
+		return funding.Reserve(delta)
 	default:
 		return types.NewError(fmt.Errorf("unsupported funding source: %s", s.funding.Source()), types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 	}
@@ -265,11 +290,27 @@ func (s *BillingSession) rollbackFundingReserve(delta int) {
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, -int64(delta)); err != nil {
 			common.SysLog("error rolling back subscription funding reserve: " + err.Error())
 		}
+	case *WorkflowReservationFunding:
+		// 后续步骤失败时把本次扩容量回滚到原认领额，保留同一 request_id 幂等关系。
+		if funding.preConsumed >= delta {
+			funding.preConsumed -= delta
+			if err := model.ClaimWorkflowQuotaItem(
+				funding.reservationId,
+				funding.itemKey,
+				funding.userId,
+				funding.tokenId,
+				funding.preConsumed,
+				funding.requestId,
+			); err != nil {
+				common.SysLog("error rolling back workflow reservation reserve: " + err.Error())
+			}
+		}
 	}
 }
 
 func (s *BillingSession) reserveToken(delta int) error {
-	if delta <= 0 || s.relayInfo.IsPlayground {
+	// 工作流 Token 已整单预扣，Reserve 阶段只处理预占明细的额度上限。
+	if delta <= 0 || s.relayInfo.IsPlayground || s.funding.Source() == BillingSourceWorkflowReservation {
 		return nil
 	}
 	if err := PreConsumeTokenQuota(s.relayInfo, delta); err != nil {
@@ -280,6 +321,10 @@ func (s *BillingSession) reserveToken(delta int) error {
 
 // shouldTrust 统一信任额度检查，适用于钱包和订阅。
 func (s *BillingSession) shouldTrust(c *gin.Context) bool {
+	// 预占节点必须真实认领明细，不能走小额请求的信任免扣旁路。
+	if s.funding.Source() == BillingSourceWorkflowReservation {
+		return false
+	}
 	// 异步任务（ForcePreConsume=true）必须预扣全额，不允许信任旁路
 	if s.relayInfo.ForcePreConsume {
 		return false
@@ -342,6 +387,39 @@ func (s *BillingSession) syncRelayInfo() {
 func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
 	if relayInfo == nil {
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	// 只有同时携带预占单和节点标识的受信任请求才进入新资金源；普通请求完全沿用原分支。
+	reservationId := strings.TrimSpace(c.GetHeader(common.WorkflowQuotaReservationIdKey))
+	itemKey := strings.TrimSpace(c.GetHeader(common.WorkflowQuotaItemKey))
+	switch {
+	case reservationId == "" && itemKey == "":
+		// 未启用工作流预占，继续使用原钱包/订阅选择逻辑。
+	case reservationId == "" || itemKey == "":
+		return nil, workflowReservationAPIError(model.ErrWorkflowQuotaReservationConflict)
+	case !workflowQuotaBillingSecretValid(c):
+		return nil, types.NewErrorWithStatusCode(
+			errors.New("workflow quota reservation authentication failed"),
+			types.ErrorCodeAccessDenied,
+			http.StatusForbidden,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
+	default:
+		funding := &WorkflowReservationFunding{
+			reservationId: reservationId,
+			itemKey:        itemKey,
+			userId:         relayInfo.UserId,
+			tokenId:        relayInfo.TokenId,
+			requestId:      relayInfo.RequestId,
+		}
+		session := &BillingSession{relayInfo: relayInfo, funding: funding}
+		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
+			return nil, apiErr
+		}
+		relayInfo.WorkflowQuotaReservationId = reservationId
+		relayInfo.WorkflowQuotaItemKey = itemKey
+		return session, nil
 	}
 
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
@@ -430,5 +508,27 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 			return nil, apiErr
 		}
 		return session, nil
+	}
+}
+
+// workflowQuotaBillingSecretValid 使用常量时间比较校验服务间密钥，避免时序侧信道。
+func workflowQuotaBillingSecretValid(c *gin.Context) bool {
+	expected := strings.TrimSpace(common.GetEnvOrDefaultString("BILLING_TRACE_SECRET", ""))
+	actual := strings.TrimSpace(c.GetHeader(common.BillingTraceSecretKey))
+	if expected == "" || len(expected) != len(actual) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(actual)) == 1
+}
+
+// workflowReservationAPIError 将模型层状态错误转换为 SSO 可稳定识别的机器码。
+func workflowReservationAPIError(err error) *types.NewAPIError {
+	switch {
+	case errors.Is(err, model.ErrWorkflowQuotaReservationExpired):
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeWorkflowQuotaReservationExpired, http.StatusConflict, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+	case errors.Is(err, model.ErrWorkflowQuotaItemExceeded):
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeWorkflowQuotaItemExceeded, http.StatusConflict, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+	default:
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeWorkflowQuotaReservationInvalid, http.StatusConflict, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 	}
 }

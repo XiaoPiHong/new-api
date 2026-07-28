@@ -85,6 +85,10 @@ const (
 	// quota error
 	ErrorCodeInsufficientUserQuota      ErrorCode = "insufficient_user_quota"
 	ErrorCodePreConsumeTokenQuotaFailed ErrorCode = "pre_consume_token_quota_failed"
+	// 工作流预占错误码会透传给 SSO 的统一任务错误映射，不能改成自由文本。
+	ErrorCodeWorkflowQuotaReservationInvalid ErrorCode = "workflow_quota_reservation_invalid"
+	ErrorCodeWorkflowQuotaReservationExpired ErrorCode = "workflow_quota_reservation_expired"
+	ErrorCodeWorkflowQuotaItemExceeded       ErrorCode = "workflow_quota_item_exceeded"
 )
 
 type NewAPIError struct {

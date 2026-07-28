@@ -643,6 +643,9 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.BillingSource = relayInfo.BillingSource
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId
+		// 异步任务完成结算发生在后续轮询阶段，必须持久化预占单和节点身份。
+		task.PrivateData.WorkflowQuotaReservationId = relayInfo.WorkflowQuotaReservationId
+		task.PrivateData.WorkflowQuotaItemKey = relayInfo.WorkflowQuotaItemKey
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
 			ModelPrice:      relayInfo.PriceData.ModelPrice,
 			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,

@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -261,9 +262,7 @@ func quoteWorkflowQuotaItem(c *gin.Context, item workflowQuotaQuoteItem) (int, e
 		if n <= 0 {
 			n = 1
 		}
-		// 不同视频渠道对分辨率倍率定义不同，预占使用当前已知渠道中的保守上界。
-		// 实际消费仍由正式任务适配器结算，多预占部分会在任务终态释放。
-		multiplier := float64(seconds*n) * workflowVideoResolutionUpperRatio(item.Resolution)
+		multiplier := workflowVideoQuoteMultiplier(c, item, info, seconds, n)
 		return reserveQuotaWithBuffer(int(math.Ceil(float64(price.Quota) * multiplier))), nil
 	default:
 		return 0, fmt.Errorf("不支持的工作流计费 adapter: %s", item.Adapter)
@@ -273,6 +272,18 @@ func quoteWorkflowQuotaItem(c *gin.Context, item workflowQuotaQuoteItem) (int, e
 // validateWorkflowQuotaModelAvailability 提前确认每个节点至少存在一个可用渠道。
 // 该检查不能保证渠道在真实执行时永不变化，但能拦住发布时就不可用的后续模型。
 func validateWorkflowQuotaModelAvailability(c *gin.Context, modelName string) error {
+	channel, err := workflowQuotaFindAvailableChannel(c, modelName)
+	if err != nil {
+		return err
+	}
+	if channel != nil {
+		return nil
+	}
+	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+	return fmt.Errorf("%w: 分组 %s 没有模型 %s 的可用渠道", errWorkflowQuotaModelUnavailable, usingGroup, modelName)
+}
+
+func workflowQuotaFindAvailableChannel(c *gin.Context, modelName string) (*model.Channel, error) {
 	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	groups := []string{usingGroup}
 	if usingGroup == "auto" {
@@ -282,13 +293,13 @@ func validateWorkflowQuotaModelAvailability(c *gin.Context, modelName string) er
 	for _, group := range groups {
 		channel, err := model.GetRandomSatisfiedChannel(group, modelName, 0)
 		if err != nil {
-			return fmt.Errorf("%w: %s", errWorkflowQuotaModelUnavailable, err.Error())
+			return nil, fmt.Errorf("%w: %s", errWorkflowQuotaModelUnavailable, err.Error())
 		}
 		if channel != nil {
-			return nil
+			return channel, nil
 		}
 	}
-	return fmt.Errorf("%w: 分组 %s 没有模型 %s 的可用渠道", errWorkflowQuotaModelUnavailable, usingGroup, modelName)
+	return nil, nil
 }
 
 // validateWorkflowQuotaTokenModel 在整单预占阶段提前执行 Token 模型白名单检查。
@@ -343,8 +354,105 @@ func workflowQuotaRelayInfo(c *gin.Context, item workflowQuotaQuoteItem) (*relay
 		BillingRequestInput: &billingexpr.RequestInput{
 			Body: requestBody,
 		},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{},
 	}
 	return info, nil
+}
+
+func workflowVideoQuoteMultiplier(c *gin.Context, item workflowQuotaQuoteItem, info *relaycommon.RelayInfo, seconds int, n int) float64 {
+	if multiplier, ok := workflowVideoQuoteMultiplierFromChannel(c, item, info); ok {
+		return multiplier
+	}
+	// 不同视频渠道对分辨率倍率定义不同。无法定位到具体 task adaptor 时，保留旧的保守上界。
+	return float64(seconds*n) * workflowVideoResolutionUpperRatio(item.Resolution)
+}
+
+func workflowVideoQuoteMultiplierFromChannel(c *gin.Context, item workflowQuotaQuoteItem, info *relaycommon.RelayInfo) (float64, bool) {
+	channel, err := workflowQuotaFindAvailableChannel(c, item.Model)
+	if err != nil || channel == nil {
+		return 0, false
+	}
+	adaptor := relay.GetTaskAdaptor(constant.TaskPlatform(strconv.Itoa(channel.Type)))
+	return workflowVideoQuoteMultiplierFromAdaptor(c, item, info, channel.Type, adaptor)
+}
+
+func workflowVideoQuoteMultiplierFromAdaptor(c *gin.Context, item workflowQuotaQuoteItem, info *relaycommon.RelayInfo, channelType int, adaptor interface {
+	EstimateBilling(*gin.Context, *relaycommon.RelayInfo) map[string]float64
+}) (float64, bool) {
+	if adaptor == nil {
+		return 0, false
+	}
+	if info == nil {
+		info = &relaycommon.RelayInfo{}
+	}
+	if info.TaskRelayInfo == nil {
+		info.TaskRelayInfo = &relaycommon.TaskRelayInfo{}
+	}
+
+	taskReq := workflowVideoTaskSubmitReq(item)
+	previousTaskReq, hadPreviousTaskReq := c.Get("task_request")
+	c.Set("task_request", taskReq)
+	defer func() {
+		if hadPreviousTaskReq {
+			c.Set("task_request", previousTaskReq)
+			return
+		}
+		delete(c.Keys, "task_request")
+	}()
+
+	n := item.N
+	if n <= 0 {
+		n = 1
+	}
+	ratios := adaptor.EstimateBilling(c, info)
+	if len(ratios) > 0 {
+		multiplier := float64(n)
+		for _, ratio := range ratios {
+			multiplier *= ratio
+		}
+		return multiplier, true
+	}
+	if workflowVideoChannelUsesBasePerCallBilling(channelType) {
+		return float64(n), true
+	}
+	return 0, false
+}
+
+func workflowVideoTaskSubmitReq(item workflowQuotaQuoteItem) relaycommon.TaskSubmitReq {
+	seconds := ""
+	if item.Seconds > 0 {
+		seconds = strconv.Itoa(item.Seconds)
+	}
+	metadata := map[string]interface{}{}
+	if strings.TrimSpace(item.Resolution) != "" {
+		metadata["resolution"] = item.Resolution
+	}
+	if strings.TrimSpace(item.AspectRatio) != "" {
+		metadata["aspect_ratio"] = item.AspectRatio
+	}
+	return relaycommon.TaskSubmitReq{
+		Prompt:   item.Prompt,
+		Model:    item.Model,
+		Size:     item.Resolution,
+		Duration: item.Seconds,
+		Seconds:  seconds,
+		Metadata: metadata,
+	}
+}
+
+func workflowVideoChannelUsesBasePerCallBilling(channelType int) bool {
+	switch channelType {
+	case constant.ChannelTypeGrokVideo,
+		constant.ChannelTypeRunningHub,
+		constant.ChannelTypeLconVideo,
+		constant.ChannelTypeMiniMax,
+		constant.ChannelTypeKling,
+		constant.ChannelTypeJimeng,
+		constant.ChannelTypeVidu:
+		return true
+	default:
+		return false
+	}
 }
 
 // workflowVideoResolutionUpperRatio 使用当前渠道中的保守倍率上界，防止视频节点低估费用。

@@ -304,13 +304,20 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 	}
 }
 
+// newUpstreamRequest 统一让上游请求继承客户端请求上下文。
+// SSO 到达业务最终截止时间并取消请求后，NewAPI 会立即取消同一条上游 HTTP 调用，
+// 避免下游已经失败退款而供应商仍继续生成。该能力适用于所有普通和任务型中继。
+func newUpstreamRequest(c *gin.Context, method string, url string, body io.Reader) (*http.Request, error) {
+	return http.NewRequestWithContext(c.Request.Context(), method, url, body)
+}
+
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", fullRequestURL)
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := newUpstreamRequest(c, c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
@@ -340,7 +347,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", fullRequestURL)
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := newUpstreamRequest(c, c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
@@ -485,6 +492,8 @@ func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	return doRequest(c, req, info)
 }
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	// 所有经过统一发送入口的请求再次绑定下游上下文，覆盖自定义 adaptor 自行构造请求时遗漏上下文的情况。
+	req = req.WithContext(c.Request.Context())
 	var client *http.Client
 	var err error
 	if info.ChannelSetting.Proxy != "" {
@@ -537,7 +546,7 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := newUpstreamRequest(c, c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}

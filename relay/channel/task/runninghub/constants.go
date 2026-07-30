@@ -1,6 +1,7 @@
 package runninghub
 
 const ModelNamePrefix = "runninghub-"
+const ModelMappingPathPrefix = "path:"
 
 var ModelList = []string{
 	"runninghub-rhart-video-g",

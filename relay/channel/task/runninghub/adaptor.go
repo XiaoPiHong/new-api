@@ -21,14 +21,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-type requestPayload struct {
-	Prompt      string   `json:"prompt"`
-	AspectRatio string   `json:"aspectRatio"`
-	ImageUrls   []string `json:"imageUrls"`
-	Resolution  string   `json:"resolution,omitempty"`
-	Duration    int      `json:"duration"`
-}
-
 type submitResponse struct {
 	Code         any    `json:"code,omitempty"`
 	Message      string `json:"message,omitempty"`
@@ -124,11 +116,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	modelSlug, err := modelSlugFromRelayInfo(info)
+	endpointPath, err := endpointPathFromRelayInfo(info)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s%s", a.baseURL, fmt.Sprintf(ImageToVideoEndpointFormat, modelSlug)), nil
+	return fmt.Sprintf("%s%s", a.baseURL, endpointPath), nil
 }
 
 func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *relaycommon.RelayInfo) error {
@@ -157,17 +149,17 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, _ *relaycommon.RelayInfo)
 	)
 	duration := positiveIntFromMap(bodyMap, "duration", positiveIntFromMap(bodyMap, "seconds", 5))
 
-	payload := requestPayload{
-		Prompt:      stringFromMap(bodyMap, "prompt"),
-		AspectRatio: aspectRatio,
-		ImageUrls:   images,
-		Resolution:  firstNonEmpty(stringFromMap(bodyMap, "resolution"), "720p"),
-		Duration:    duration,
-	}
-
-	if strings.TrimSpace(payload.Prompt) == "" {
+	prompt := stringFromMap(bodyMap, "prompt")
+	if strings.TrimSpace(prompt) == "" {
 		return nil, fmt.Errorf("prompt is required")
 	}
+
+	payload := normalizedRequestPayload(bodyMap)
+	payload["prompt"] = prompt
+	payload["aspectRatio"] = aspectRatio
+	payload["imageUrls"] = images
+	payload["resolution"] = firstNonEmpty(stringFromMap(bodyMap, "resolution"), "720p")
+	payload["duration"] = duration
 
 	data, err := common.Marshal(payload)
 	if err != nil {
@@ -319,16 +311,55 @@ func (a *TaskAdaptor) GetChannelName() string {
 	return ChannelName
 }
 
-func modelSlugFromRelayInfo(info *relaycommon.RelayInfo) (string, error) {
-	modelName := ""
-	if info != nil {
-		modelName = firstNonEmpty(info.UpstreamModelName, info.OriginModelName)
+func endpointPathFromRelayInfo(info *relaycommon.RelayInfo) (string, error) {
+	modelName := runningHubModelNameFromRelayInfo(info)
+	if path, ok, err := mappedEndpointPath(modelName); ok || err != nil {
+		return path, err
 	}
+
 	modelSlug := runningHubModelSlug(modelName)
 	if modelSlug == "" {
 		return "", fmt.Errorf("invalid runninghub model: %s", modelName)
 	}
-	return modelSlug, nil
+	return fmt.Sprintf(ImageToVideoEndpointFormat, modelSlug), nil
+}
+
+func runningHubModelNameFromRelayInfo(info *relaycommon.RelayInfo) string {
+	if info == nil {
+		return ""
+	}
+	return firstNonEmpty(info.UpstreamModelName, info.OriginModelName)
+}
+
+func mappedEndpointPath(modelName string) (string, bool, error) {
+	modelName = strings.TrimSpace(modelName)
+	if len(modelName) < len(ModelMappingPathPrefix) ||
+		!strings.EqualFold(modelName[:len(ModelMappingPathPrefix)], ModelMappingPathPrefix) {
+		return "", false, nil
+	}
+	path := strings.TrimSpace(modelName[len(ModelMappingPathPrefix):])
+	if err := validateMappedEndpointPath(path); err != nil {
+		return "", true, err
+	}
+	return path, true, nil
+}
+
+func validateMappedEndpointPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("runninghub mapped endpoint path is empty")
+	}
+	if !strings.HasPrefix(path, "/openapi/v2/") {
+		return fmt.Errorf("runninghub mapped endpoint path must start with /openapi/v2/: %s", path)
+	}
+	if strings.ContainsAny(path, " \t\r\n?#") {
+		return fmt.Errorf("runninghub mapped endpoint path contains invalid characters: %s", path)
+	}
+	for _, segment := range strings.Split(strings.Trim(path, "/"), "/") {
+		if !isValidRunningHubModelSlugSegment(segment) {
+			return fmt.Errorf("invalid runninghub mapped endpoint path segment: %s", segment)
+		}
+	}
+	return nil
 }
 
 func runningHubModelSlug(modelName string) string {
@@ -400,7 +431,36 @@ func getRequestBodyMap(c *gin.Context) (map[string]any, error) {
 	return bodyMap, nil
 }
 
+func normalizedRequestPayload(bodyMap map[string]any) map[string]any {
+	payload := make(map[string]any, len(bodyMap))
+	for key, value := range bodyMap {
+		if !shouldPassThroughRequestField(key) {
+			continue
+		}
+		payload[key] = value
+	}
+	return payload
+}
+
+func shouldPassThroughRequestField(key string) bool {
+	switch strings.TrimSpace(key) {
+	case "imageUrl",
+		"lora1",
+		"lora1_strength_model",
+		"lora2",
+		"lora2_strength_model",
+		"lora3",
+		"lora3_strength_model":
+		return true
+	default:
+		return false
+	}
+}
+
 func imageURLsFromMap(bodyMap map[string]any) []string {
+	if image := stringFromMap(bodyMap, "imageUrl"); image != "" {
+		return []string{image}
+	}
 	if urls := stringSliceFromAny(bodyMap["imageUrls"]); len(urls) > 0 {
 		return urls
 	}

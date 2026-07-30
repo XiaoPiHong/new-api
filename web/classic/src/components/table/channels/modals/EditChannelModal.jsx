@@ -263,7 +263,10 @@ const EditChannelModal = (props) => {
       }
       const values = Object.values(parsed)
         .map((value) => (typeof value === 'string' ? value.trim() : undefined))
-        .filter((value) => value);
+        .filter(
+          (value) =>
+            value && !String(value).trim().toLowerCase().startsWith('path:'),
+        );
       return Array.from(new Set(values));
     } catch (error) {
       return [];

@@ -46,6 +46,10 @@ export function normalizeModelName(model: string): string {
   return typeof model === 'string' ? model.trim() : ''
 }
 
+export function isPathModelMappingTarget(model: string): boolean {
+  return normalizeModelName(model).toLowerCase().startsWith('path:')
+}
+
 /**
  * Extract source keys from model_mapping JSON
  * (the keys of the mapping object — models being remapped FROM)
@@ -88,7 +92,10 @@ export function extractRedirectModels(modelMapping: string): string[] {
 
     const values = Object.values(parsed)
       .map((value) => (typeof value === 'string' ? value.trim() : undefined))
-      .filter((value): value is string => Boolean(value))
+      .filter((value): value is string => {
+        if (!value) return false
+        return !isPathModelMappingTarget(value)
+      })
 
     return Array.from(new Set(values))
   } catch {

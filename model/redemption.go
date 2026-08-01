@@ -114,7 +114,7 @@ func GetRedemptionById(id int) (*Redemption, error) {
 
 func Redeem(key string, userId int) (quota int, err error) {
 	if key == "" {
-		return 0, errors.New("未提供兑换码")
+		return 0, ErrRedeemNotProvided
 	}
 	if userId == 0 {
 		return 0, errors.New("无效的 user id")
@@ -129,13 +129,13 @@ func Redeem(key string, userId int) (quota int, err error) {
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(keyCol+" = ?", key).First(redemption).Error
 		if err != nil {
-			return errors.New("无效的兑换码")
+			return ErrRedeemInvalid
 		}
 		if redemption.Status != common.RedemptionCodeStatusEnabled {
-			return errors.New("该兑换码已被使用")
+			return ErrRedeemUsed
 		}
 		if redemption.ExpiredTime != 0 && redemption.ExpiredTime < common.GetTimestamp() {
-			return errors.New("该兑换码已过期")
+			return ErrRedeemExpired
 		}
 		err = tx.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error
 		if err != nil {
@@ -148,6 +148,12 @@ func Redeem(key string, userId int) (quota int, err error) {
 		return err
 	})
 	if err != nil {
+		if errors.Is(err, ErrRedeemNotProvided) ||
+			errors.Is(err, ErrRedeemInvalid) ||
+			errors.Is(err, ErrRedeemUsed) ||
+			errors.Is(err, ErrRedeemExpired) {
+			return 0, err
+		}
 		common.SysError("redemption failed: " + err.Error())
 		return 0, ErrRedeemFailed
 	}

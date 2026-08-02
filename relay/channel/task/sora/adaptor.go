@@ -304,7 +304,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusInProgress
 	case "completed":
 		taskResult.Status = model.TaskStatusSuccess
-		// Url intentionally left empty — the caller constructs the proxy URL using the public task ID
+		taskResult.Url = firstVideoResultURL(respBody)
 	case "failed", "cancelled":
 		taskResult.Status = model.TaskStatusFailure
 		if resTask.Error != nil {
@@ -319,6 +319,89 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	}
 
 	return &taskResult, nil
+}
+
+func firstVideoResultURL(respBody []byte) string {
+	var payload any
+	if err := common.Unmarshal(respBody, &payload); err != nil {
+		return ""
+	}
+	candidates := collectVideoResultURLs(payload)
+	for _, candidate := range candidates {
+		if isAbsoluteDownloadURL(candidate) {
+			return candidate
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
+}
+
+func collectVideoResultURLs(value any) []string {
+	switch v := value.(type) {
+	case string:
+		url := strings.TrimSpace(v)
+		if isPotentialDownloadURL(url) {
+			return []string{url}
+		}
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			result = append(result, collectVideoResultURLs(item)...)
+		}
+		return result
+	case map[string]any:
+		result := make([]string, 0)
+		for _, key := range []string{
+			"data",
+			"results",
+			"output",
+			"video",
+			"metadata",
+			"url",
+			"video_url",
+			"videoUrl",
+			"result_url",
+			"resultUrl",
+			"resultURL",
+			"file_url",
+			"fileUrl",
+		} {
+			result = append(result, collectVideoResultURLs(v[key])...)
+		}
+		return dedupeStrings(result)
+	}
+	return nil
+}
+
+func dedupeStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func isPotentialDownloadURL(url string) bool {
+	return strings.HasPrefix(url, "http://") ||
+		strings.HasPrefix(url, "https://") ||
+		strings.HasPrefix(url, "data:") ||
+		strings.HasPrefix(url, "/")
+}
+
+func isAbsoluteDownloadURL(url string) bool {
+	return strings.HasPrefix(url, "http://") ||
+		strings.HasPrefix(url, "https://") ||
+		strings.HasPrefix(url, "data:")
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {

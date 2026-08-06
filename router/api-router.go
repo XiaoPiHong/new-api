@@ -338,6 +338,14 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			workflowQuotaInternalRoute.POST("/:reservation_id/release", controller.ReleaseWorkflowQuotaReservationInternal)
 		}
+		// 异步 provider task 查询只使用服务间共享密钥，不依赖用户 Token。
+		providerTaskInternalRoute := apiRouter.Group("/provider-tasks/internal")
+		{
+			providerTaskInternalRoute.GET(
+				"/by-billing-trace/:trace_id",
+				controller.GetProviderTaskByBillingTrace,
+			)
+		}
 		groupRoute := apiRouter.Group("/group")
 		groupRoute.Use(middleware.AdminAuth())
 		{

@@ -68,6 +68,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	info.Action = constant.TaskActionTextGenerate
 	if stringFromMap(bodyMap, "video") != "" {
 		info.Action = constant.TaskActionGenerate
+	} else if hasReferenceImageInput(bodyMap) {
+		info.Action = constant.TaskActionReferenceGenerate
 	}
 
 	req, err := relaycommon.GetTaskRequest(c)
@@ -203,14 +205,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	case "completed", "succeeded", "success", "done":
 		taskResult.Status = model.TaskStatusSuccess
 		taskResult.Progress = taskcommon.ProgressComplete
-		taskResult.Url = firstNonEmpty(
-			resTask.VideoURL,
-			resTask.URL,
-			stringFromMap(resTask.Video, "url"),
-			stringFromMap(resTask.Data, "video_url"),
-			stringFromMap(resTask.Data, "url"),
-			stringFromMap(mapFromMap(resTask.Data, "video"), "url"),
-		)
+		taskResult.Url = firstJunliaiVideoResultURL(respBody)
 	case "failed", "fail", "cancelled", "canceled":
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = taskcommon.ProgressComplete
@@ -277,6 +272,47 @@ func normalizeVideoURLObject(bodyMap map[string]any) {
 	}
 }
 
+func hasReferenceImageInput(bodyMap map[string]any) bool {
+	return hasImageValue(bodyMap["reference_images"]) ||
+		hasImageValue(bodyMap["images"]) ||
+		stringFromMap(bodyMap, "image") != "" ||
+		stringFromMap(bodyMap, "input_reference") != ""
+}
+
+func hasImageValue(value any) bool {
+	switch images := value.(type) {
+	case string:
+		return strings.TrimSpace(images) != ""
+	case []string:
+		for _, image := range images {
+			if strings.TrimSpace(image) != "" {
+				return true
+			}
+		}
+	case []any:
+		for _, image := range images {
+			if hasImageValue(image) {
+				return true
+			}
+		}
+	case map[string]any:
+		return firstNonEmpty(
+			stringFromMap(images, "url"),
+			stringFromMap(images, "imageUrl"),
+			stringFromMap(images, "image_url"),
+			stringFromMap(images, "dataUrl"),
+			stringFromMap(images, "data_url"),
+		) != ""
+	case map[string]string:
+		for _, image := range images {
+			if strings.TrimSpace(image) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func normalizeJunliaiVideoRequestBody(bodyMap map[string]any, action string) {
 	allowed := map[string]struct{}{
 		"model":  {},
@@ -305,6 +341,88 @@ func normalizeJunliaiVideoRequestBody(bodyMap map[string]any, action string) {
 			delete(bodyMap, key)
 		}
 	}
+}
+
+func firstJunliaiVideoResultURL(respBody []byte) string {
+	var payload any
+	if err := common.Unmarshal(respBody, &payload); err != nil {
+		return ""
+	}
+	for _, candidate := range collectJunliaiVideoResultURLs(payload) {
+		if isAbsoluteDownloadURL(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func collectJunliaiVideoResultURLs(value any) []string {
+	switch v := value.(type) {
+	case string:
+		url := strings.TrimSpace(v)
+		if isPotentialDownloadURL(url) {
+			return []string{url}
+		}
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			result = append(result, collectJunliaiVideoResultURLs(item)...)
+		}
+		return dedupeStrings(result)
+	case map[string]any:
+		result := make([]string, 0)
+		for _, key := range []string{
+			"data",
+			"results",
+			"result",
+			"output",
+			"video",
+			"metadata",
+			"url",
+			"video_url",
+			"videoUrl",
+			"result_url",
+			"resultUrl",
+			"resultURL",
+			"file_url",
+			"fileUrl",
+			"download_url",
+			"downloadUrl",
+		} {
+			result = append(result, collectJunliaiVideoResultURLs(v[key])...)
+		}
+		return dedupeStrings(result)
+	}
+	return nil
+}
+
+func dedupeStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func isPotentialDownloadURL(url string) bool {
+	return strings.HasPrefix(url, "http://") ||
+		strings.HasPrefix(url, "https://") ||
+		strings.HasPrefix(url, "data:") ||
+		strings.HasPrefix(url, "/")
+}
+
+func isAbsoluteDownloadURL(url string) bool {
+	return strings.HasPrefix(url, "http://") ||
+		strings.HasPrefix(url, "https://") ||
+		strings.HasPrefix(url, "data:")
 }
 
 func firstMapValue(m map[string]any, keys ...string) any {
@@ -542,20 +660,6 @@ func stringFromMap(m map[string]any, key string) string {
 	default:
 		return strings.TrimSpace(fmt.Sprintf("%v", val))
 	}
-}
-
-func mapFromMap(m map[string]any, key string) map[string]any {
-	if m == nil {
-		return nil
-	}
-	v, ok := m[key]
-	if !ok || v == nil {
-		return nil
-	}
-	if val, ok := v.(map[string]any); ok {
-		return val
-	}
-	return nil
 }
 
 func firstNonEmpty(values ...string) string {

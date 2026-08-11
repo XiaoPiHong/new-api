@@ -32,6 +32,8 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		fallthrough
 	case constant.ChannelTypeGrokVideo:
 		fallthrough
+	case constant.ChannelTypeJunliai:
+		fallthrough
 	case constant.ChannelTypeRunningHub:
 		fallthrough
 	case constant.ChannelTypeLconVideo:

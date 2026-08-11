@@ -443,6 +443,7 @@ func workflowVideoTaskSubmitReq(item workflowQuotaQuoteItem) relaycommon.TaskSub
 func workflowVideoChannelUsesBasePerCallBilling(channelType int) bool {
 	switch channelType {
 	case constant.ChannelTypeGrokVideo,
+		constant.ChannelTypeJunliai,
 		constant.ChannelTypeRunningHub,
 		constant.ChannelTypeLconVideo,
 		constant.ChannelTypeMiniMax,

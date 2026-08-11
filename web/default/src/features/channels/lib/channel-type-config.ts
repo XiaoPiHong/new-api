@@ -144,6 +144,16 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'grok-imagine-video',
     },
   },
+  61: {
+    id: 61,
+    name: CHANNEL_TYPES[61],
+    icon: 'openai',
+    hints: {
+      baseUrl: 'Provider root URL',
+      key: 'Bearer API key',
+      models: 'junliai-grok-imagine-video',
+    },
+  },
   59: {
     id: 59,
     name: CHANNEL_TYPES[59],

@@ -36,6 +36,7 @@ import (
 	taskgrokvideo "github.com/QuantumNous/new-api/relay/channel/task/grokvideo"
 	"github.com/QuantumNous/new-api/relay/channel/task/hailuo"
 	taskjimeng "github.com/QuantumNous/new-api/relay/channel/task/jimeng"
+	taskjunliai "github.com/QuantumNous/new-api/relay/channel/task/junliai"
 	"github.com/QuantumNous/new-api/relay/channel/task/kling"
 	tasklconvideo "github.com/QuantumNous/new-api/relay/channel/task/lconvideo"
 	taskrunninghub "github.com/QuantumNous/new-api/relay/channel/task/runninghub"
@@ -160,6 +161,8 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 			return &tasksora.TaskAdaptor{}
 		case constant.ChannelTypeGrokVideo:
 			return &taskgrokvideo.TaskAdaptor{}
+		case constant.ChannelTypeJunliai:
+			return &taskjunliai.TaskAdaptor{}
 		case constant.ChannelTypeRunningHub:
 			return &taskrunninghub.TaskAdaptor{}
 		case constant.ChannelTypeLconVideo:

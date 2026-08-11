@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	"github.com/QuantumNous/new-api/relay/channel/moonshot"
 	taskgrokvideo "github.com/QuantumNous/new-api/relay/channel/task/grokvideo"
+	taskjunliai "github.com/QuantumNous/new-api/relay/channel/task/junliai"
 	tasklconvideo "github.com/QuantumNous/new-api/relay/channel/task/lconvideo"
 	taskrunninghub "github.com/QuantumNous/new-api/relay/channel/task/runninghub"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -99,6 +100,10 @@ func init() {
 	for i := 1; i <= constant.ChannelTypeDummy; i++ {
 		if i == constant.ChannelTypeGrokVideo {
 			channelId2Models[i] = taskgrokvideo.ModelList
+			continue
+		}
+		if i == constant.ChannelTypeJunliai {
+			channelId2Models[i] = taskjunliai.ModelList
 			continue
 		}
 		if i == constant.ChannelTypeRunningHub {

@@ -444,6 +444,7 @@ func workflowVideoChannelUsesBasePerCallBilling(channelType int) bool {
 	switch channelType {
 	case constant.ChannelTypeGrokVideo,
 		constant.ChannelTypeJunliai,
+		constant.ChannelTypeKieVideo,
 		constant.ChannelTypeRunningHub,
 		constant.ChannelTypeLconVideo,
 		constant.ChannelTypeMiniMax,

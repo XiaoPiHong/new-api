@@ -59,6 +59,7 @@ const (
 	ChannelTypeRunningHub     = 59
 	ChannelTypeLconVideo      = 60
 	ChannelTypeJunliai        = 61
+	ChannelTypeKieVideo       = 62
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -126,6 +127,7 @@ var ChannelBaseURLs = []string{
 	"https://www.runninghub.ai",                 //59
 	"https://n.lconai.com",                      //60
 	"",                                          //61
+	"https://api.kie.ai",                        //62
 }
 
 var ChannelTypeNames = map[int]string{
@@ -187,6 +189,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeRunningHub:     "RunningHub",
 	ChannelTypeLconVideo:      "LconVideo",
 	ChannelTypeJunliai:        "Junliai",
+	ChannelTypeKieVideo:       "KieVideo",
 }
 
 func GetChannelTypeName(channelType int) string {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
+	taskkievideo "github.com/QuantumNous/new-api/relay/channel/task/kievideo"
 	taskrunninghub "github.com/QuantumNous/new-api/relay/channel/task/runninghub"
 	tasksora "github.com/QuantumNous/new-api/relay/channel/task/sora"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -27,6 +28,27 @@ func TestWorkflowVideoQuoteMultiplierRunningHubUsesPerCallAdaptor(t *testing.T) 
 		&relaycommon.RelayInfo{},
 		constant.ChannelTypeRunningHub,
 		&taskrunninghub.TaskAdaptor{},
+	)
+
+	require.True(t, ok)
+	require.Equal(t, 1.0, multiplier)
+}
+
+func TestWorkflowVideoQuoteMultiplierKieVideoUsesPerCallAdaptor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	multiplier, ok := workflowVideoQuoteMultiplierFromAdaptor(
+		ctx,
+		workflowQuotaQuoteItem{
+			Model:      "grok-imagine-video-1-5-preview",
+			Seconds:    8,
+			Resolution: "480p",
+			N:          1,
+		},
+		&relaycommon.RelayInfo{},
+		constant.ChannelTypeKieVideo,
+		&taskkievideo.TaskAdaptor{},
 	)
 
 	require.True(t, ok)

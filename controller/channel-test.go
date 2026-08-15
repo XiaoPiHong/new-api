@@ -112,6 +112,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		constant.ChannelTypeSora,
 		constant.ChannelTypeGrokVideo,
 		constant.ChannelTypeJunliai,
+		constant.ChannelTypeKieVideo,
 		constant.ChannelTypeRunningHub,
 		constant.ChannelTypeLconVideo,
 	}

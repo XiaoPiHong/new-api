@@ -103,6 +103,7 @@ export function getChannelTypeIcon(type: number): string {
     59: 'OpenAI', // RunningHub
     60: 'OpenAI', // LconVideo
     61: 'OpenAI', // Junliai
+    62: 'OpenAI', // KieVideo
     54: 'Doubao', // DoubaoVideo
     56: 'Replicate', // Replicate
 

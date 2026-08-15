@@ -176,6 +176,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'grok-video-3-pro',
     },
   },
+  62: {
+    id: 62,
+    name: CHANNEL_TYPES[62],
+    icon: 'openai',
+    defaultBaseUrl: 'https://api.kie.ai',
+    hints: {
+      baseUrl: 'Default: https://api.kie.ai',
+      key: 'Bearer API key',
+      models: 'Configure KIE model IDs in channel models',
+    },
+  },
 }
 
 /**

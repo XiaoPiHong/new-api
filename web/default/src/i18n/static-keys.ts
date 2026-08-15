@@ -200,6 +200,13 @@ export const STATIC_I18N_KEYS = [
   // Models section-registry nav (dynamic titleKey)
   'Grok',
 
+  // Channel constants
+  'KieVideo',
+  'KIE API key',
+  'Default: https://api.kie.ai',
+  'Bearer API key',
+  'Configure KIE model IDs in channel models',
+
   // Channel Affinity section
   'Channel Affinity',
 

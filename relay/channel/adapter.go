@@ -78,6 +78,13 @@ type TaskAdaptor interface {
 	ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error)
 }
 
+type TaskPreBuildParamOverrideAdaptor interface {
+	// ApplyParamOverrideBeforeBuildRequest lets adaptors that convert the
+	// standard JSON task request to non-JSON upstream formats apply channel
+	// parameter overrides before BuildRequestBody runs.
+	ApplyParamOverrideBeforeBuildRequest() bool
+}
+
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }

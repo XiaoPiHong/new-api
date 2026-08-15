@@ -30,6 +30,8 @@ type TaskSubmitResult struct {
 	//PerCallPrice   types.PriceData
 }
 
+const taskParamOverridePreAppliedKey = "task_param_override_pre_applied"
+
 // ResolveOriginTask 处理基于已有任务的提交（remix / continuation）：
 // 查找原始任务、从中提取模型名称、将渠道锁定到原始任务的渠道
 // （通过 info.LockedChannel，重试时复用同一渠道并轮换 key），
@@ -171,6 +173,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, service.TaskErrorWrapperLocal(err, "model_mapping_failed", http.StatusBadRequest)
 	}
 
+	if taskErr := applyTaskParamOverrideBeforeBuild(c, info, adaptor); taskErr != nil {
+		return nil, taskErr
+	}
+
 	// 3. 预生成公开 task ID（仅首次）
 	if info.PublicTaskID == "" {
 		info.PublicTaskID = model.GenerateTaskID()
@@ -215,7 +221,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "build_request_failed", http.StatusInternalServerError)
 	}
-	requestBody, err = applyTaskParamOverride(requestBody, info)
+	requestBody, err = applyTaskParamOverride(c, requestBody, info)
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "param_override_failed", http.StatusBadRequest)
 	}
@@ -261,10 +267,75 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}, nil
 }
 
+func applyTaskParamOverrideBeforeBuild(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.TaskAdaptor) *dto.TaskError {
+	preBuildAdaptor, ok := adaptor.(channel.TaskPreBuildParamOverrideAdaptor)
+	if !ok || !preBuildAdaptor.ApplyParamOverrideBeforeBuildRequest() {
+		return nil
+	}
+	if info == nil || info.ChannelMeta == nil || len(info.ChannelMeta.ParamOverride) == 0 {
+		return nil
+	}
+
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return service.TaskErrorWrapper(err, "get_request_body_failed", http.StatusBadRequest)
+	}
+	bodyBytes, err := storage.Bytes()
+	if err != nil {
+		return service.TaskErrorWrapper(err, "read_request_body_failed", http.StatusBadRequest)
+	}
+	trimmed := bytes.TrimSpace(bodyBytes)
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return nil
+	}
+
+	jsonData, err := relaycommon.ApplyParamOverrideWithRelayInfo(bodyBytes, info)
+	if err != nil {
+		return service.TaskErrorWrapper(err, "param_override_failed", http.StatusBadRequest)
+	}
+	if bytes.Equal(jsonData, bodyBytes) {
+		return nil
+	}
+	if err := replaceTaskRequestBody(c, jsonData); err != nil {
+		return service.TaskErrorWrapper(err, "replace_request_body_failed", http.StatusInternalServerError)
+	}
+	c.Set(taskParamOverridePreAppliedKey, true)
+
+	if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
+		return taskErr
+	}
+	return nil
+}
+
+func replaceTaskRequestBody(c *gin.Context, body []byte) error {
+	var oldStorage common.BodyStorage
+	if storage, exists := c.Get(common.KeyBodyStorage); exists && storage != nil {
+		if bs, ok := storage.(common.BodyStorage); ok {
+			oldStorage = bs
+		}
+	}
+
+	storage, err := common.CreateBodyStorage(body)
+	if err != nil {
+		return err
+	}
+	c.Set(common.KeyBodyStorage, storage)
+	c.Request.Body = io.NopCloser(storage)
+	c.Request.ContentLength = int64(len(body))
+
+	if oldStorage != nil {
+		_ = oldStorage.Close()
+	}
+	return nil
+}
+
 // applyTaskParamOverride lets async task requests use the same channel
 // parameter override rules as chat/image/embedding relays. Only JSON bodies are
 // rewritten; multipart and other binary bodies pass through unchanged.
-func applyTaskParamOverride(requestBody io.Reader, info *relaycommon.RelayInfo) (io.Reader, error) {
+func applyTaskParamOverride(c *gin.Context, requestBody io.Reader, info *relaycommon.RelayInfo) (io.Reader, error) {
+	if c.GetBool(taskParamOverridePreAppliedKey) {
+		return requestBody, nil
+	}
 	if info == nil || info.ChannelMeta == nil || len(info.ChannelMeta.ParamOverride) == 0 {
 		return requestBody, nil
 	}

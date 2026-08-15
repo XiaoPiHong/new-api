@@ -68,6 +68,10 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	return relaycommon.ValidateMultipartDirect(c, info)
 }
 
+func (a *TaskAdaptor) ApplyParamOverrideBeforeBuildRequest() bool {
+	return true
+}
+
 func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
 	return fmt.Sprintf("%s%s", a.baseURL, VideoEndpoint), nil
 }

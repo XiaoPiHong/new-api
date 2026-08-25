@@ -121,12 +121,17 @@ const endpointTypeOptions: Array<{ value: string; label: string }> = [
     value: 'image-generation',
     label: 'Image Generation (/v1/images/generations)',
   },
+  {
+    value: 'image-edit',
+    label: 'Image Edit (/v1/images/edits)',
+  },
   { value: 'embeddings', label: 'Embeddings (/v1/embeddings)' },
 ]
 
 const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
   'embeddings',
   'image-generation',
+  'image-edit',
   'jina-rerank',
   'openai-response-compact',
 ])

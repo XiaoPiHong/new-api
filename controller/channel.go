@@ -1037,7 +1037,7 @@ func FetchModels(c *gin.Context) {
 		return
 	}
 
-	if req.Type == constant.ChannelTypeGemini {
+	if req.Type == constant.ChannelTypeGemini || req.Type == constant.ChannelTypeGeminiImage {
 		models, err := gemini.FetchGeminiModels(baseURL, key, "")
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{

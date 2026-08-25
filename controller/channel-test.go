@@ -62,6 +62,9 @@ func isChannelTestImageGenerationModel(channel *model.Channel, modelName string)
 	if strings.Contains(lowerModelName, "gpt-image") {
 		return true
 	}
+	if channel != nil && channel.Type == constant.ChannelTypeGeminiImage {
+		return true
+	}
 	return channel != nil &&
 		channel.Type == constant.ChannelTypeVolcEngine &&
 		strings.Contains(lowerModelName, "seedream")
@@ -209,6 +212,8 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		case constant.EndpointTypeJinaRerank:
 			relayFormat = types.RelayFormatRerank
 		case constant.EndpointTypeImageGeneration:
+			fallthrough
+		case constant.EndpointTypeImageEdit:
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
@@ -720,6 +725,16 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Prompt: "a cute cat",
 				N:      lo.ToPtr(uint(1)),
 				Size:   "1024x1024",
+			}
+		case constant.EndpointTypeImageEdit:
+			// Use a tiny data URL so the edit adapter can be smoke-tested without
+			// requiring a multipart upload in the channel-test endpoint.
+			return &dto.ImageRequest{
+				Model:  model,
+				Prompt: "a cute cat",
+				N:      lo.ToPtr(uint(1)),
+				Size:   "1024x1024",
+				Image:  json.RawMessage(`"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="`),
 			}
 		case constant.EndpointTypeJinaRerank:
 			// 返回 RerankRequest

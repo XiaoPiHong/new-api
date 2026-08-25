@@ -58,6 +58,7 @@ export function getChannelTypeIcon(type: number): string {
 
     // Google family
     24: 'Gemini', // Gemini
+    63: 'Gemini', // GeminiImage
     11: 'Google', // PaLM
     41: 'Gemini', // Vertex AI
 

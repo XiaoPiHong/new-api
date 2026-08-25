@@ -320,6 +320,8 @@ func ListModels(c *gin.Context, modelType int) {
 			"last_id":  useranthropicModels[len(useranthropicModels)-1].ID,
 		})
 	case constant.ChannelTypeGemini:
+		fallthrough
+	case constant.ChannelTypeGeminiImage:
 		userGeminiModels := make([]dto.GeminiModel, len(userOpenAiModels))
 		for i, model := range userOpenAiModels {
 			userGeminiModels[i] = dto.GeminiModel{

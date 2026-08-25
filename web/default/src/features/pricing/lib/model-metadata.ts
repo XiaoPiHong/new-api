@@ -40,9 +40,11 @@ const TEXT_INPUT_ENDPOINTS = new Set([
   'gemini',
   'embeddings',
   'jina-rerank',
+  'image-generation',
+  'image-edit',
 ])
 
-const IMAGE_OUTPUT_ENDPOINTS = new Set(['image-generation'])
+const IMAGE_OUTPUT_ENDPOINTS = new Set(['image-generation', 'image-edit'])
 const VIDEO_OUTPUT_ENDPOINTS = new Set(['openai-video'])
 const EMBEDDING_ENDPOINTS = new Set(['embeddings', 'jina-rerank'])
 
@@ -164,7 +166,11 @@ function inferInputModalities(
     set.add('text')
   }
 
-  if (model.image_ratio != null || nameMatches(name, VISION_NAME_PATTERNS)) {
+  if (
+    model.image_ratio != null ||
+    endpoints.includes('image-edit') ||
+    nameMatches(name, VISION_NAME_PATTERNS)
+  ) {
     set.add('image')
   }
   if (model.audio_ratio != null || nameMatches(name, AUDIO_NAME_PATTERNS)) {
@@ -215,12 +221,15 @@ function inferCapabilities(
 ): ModelCapability[] {
   const set = new Set<ModelCapability>()
 
-  if (outputs.includes('text') && !endpoints.includes('image-generation')) {
+  if (
+    outputs.includes('text') &&
+    !endpoints.some((endpoint) => IMAGE_OUTPUT_ENDPOINTS.has(endpoint))
+  ) {
     set.add('streaming')
     set.add('system_prompt')
   }
   if (
-    !endpoints.includes('image-generation') &&
+    !endpoints.some((endpoint) => IMAGE_OUTPUT_ENDPOINTS.has(endpoint)) &&
     !endpoints.includes('embeddings') &&
     !endpoints.includes('jina-rerank')
   ) {
@@ -258,7 +267,7 @@ function inferContextAndOutputs(
     return { context: 8_192, maxOutput: 0 }
   }
   if (
-    endpoints.includes('image-generation') ||
+    endpoints.some((endpoint) => IMAGE_OUTPUT_ENDPOINTS.has(endpoint)) ||
     endpoints.includes('openai-video')
   ) {
     return { context: 4_096, maxOutput: 0 }

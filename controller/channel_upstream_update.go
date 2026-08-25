@@ -276,7 +276,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		})), nil
 	}
 
-	if channel.Type == constant.ChannelTypeGemini {
+	if channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeGeminiImage {
 		key, _, apiErr := channel.GetNextEnabledKey()
 		if apiErr != nil {
 			return nil, fmt.Errorf("获取渠道密钥失败: %w", apiErr)
@@ -337,7 +337,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	}
 
 	ids := lo.Map(result.Data, func(item OpenAIModel, _ int) string {
-		if channel.Type == constant.ChannelTypeGemini {
+		if channel.Type == constant.ChannelTypeGemini || channel.Type == constant.ChannelTypeGeminiImage {
 			return strings.TrimPrefix(item.ID, "models/")
 		}
 		return item.ID

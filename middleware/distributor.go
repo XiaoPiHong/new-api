@@ -449,6 +449,8 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	case constant.ChannelTypeXunfei:
 		c.Set("api_version", channel.Other)
 	case constant.ChannelTypeGemini:
+		fallthrough
+	case constant.ChannelTypeGeminiImage:
 		c.Set("api_version", channel.Other)
 	case constant.ChannelTypeAli:
 		c.Set("plugin", channel.Other)

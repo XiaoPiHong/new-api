@@ -365,6 +365,7 @@ export function getChannelIcon(channelType) {
     case 26: // 智谱 GLM-4V
       return <Zhipu.Color size={iconSize} />;
     case 24: // Google Gemini
+    case 63: // Google Gemini Image
     case 11: // Google PaLM2
       return <Gemini.Color size={iconSize} />;
     case 47: // Xinference

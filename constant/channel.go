@@ -60,6 +60,8 @@ const (
 	ChannelTypeLconVideo      = 60
 	ChannelTypeJunliai        = 61
 	ChannelTypeKieVideo       = 62
+	// GeminiImage uses the native Gemini generateContent image protocol.
+	ChannelTypeGeminiImage = 63
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -128,6 +130,7 @@ var ChannelBaseURLs = []string{
 	"https://n.lconai.com",                      //60
 	"",                                          //61
 	"https://api.kie.ai",                        //62
+	"",                                          //63 GeminiImage
 }
 
 var ChannelTypeNames = map[int]string{
@@ -190,6 +193,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeLconVideo:      "LconVideo",
 	ChannelTypeJunliai:        "Junliai",
 	ChannelTypeKieVideo:       "KieVideo",
+	ChannelTypeGeminiImage:    "Gemini Image",
 }
 
 func GetChannelTypeName(channelType int) string {

@@ -92,6 +92,16 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'gemini-pro,gemini-pro-vision',
     },
   },
+  63: {
+    id: 63,
+    name: CHANNEL_TYPES[63],
+    icon: 'google',
+    hints: {
+      baseUrl: 'Gemini-compatible provider root URL',
+      key: 'Provider API Key',
+      models: 'Provider image-capable Gemini model IDs',
+    },
+  },
   41: {
     id: 41,
     name: CHANNEL_TYPES[41],

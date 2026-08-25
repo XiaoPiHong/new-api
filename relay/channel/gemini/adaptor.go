@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	channelconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
@@ -58,6 +59,10 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
+	if info.ChannelType == channelconstant.ChannelTypeGeminiImage {
+		return convertGeminiGenerateContentImageRequest(c, info, request)
+	}
+
 	if !strings.HasPrefix(info.UpstreamModelName, "imagen") {
 		return nil, errors.New("not supported model for image generation, only imagen models are supported")
 	}
@@ -146,6 +151,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 	version := model_setting.GetGeminiVersionSetting(info.UpstreamModelName)
 
+	if info.ChannelType == channelconstant.ChannelTypeGeminiImage {
+		return fmt.Sprintf("%s/%s/models/%s:generateContent", info.ChannelBaseUrl, version, info.UpstreamModelName), nil
+	}
+
 	if strings.HasPrefix(info.UpstreamModelName, "imagen") {
 		return fmt.Sprintf("%s/%s/models/%s:predict", info.ChannelBaseUrl, version, info.UpstreamModelName), nil
 	}
@@ -172,6 +181,14 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
+	// Gemini Image converts OpenAI multipart image edits into a native Gemini
+	// JSON generateContent request. Do not forward the original multipart
+	// Content-Type, otherwise Zaotuya tries to parse the JSON body as a multipart
+	// stream and returns "multipart: NextPart: bufio: buffer full".
+	if info.ChannelType == channelconstant.ChannelTypeGeminiImage &&
+		(info.RelayMode == constant.RelayModeImagesGenerations || info.RelayMode == constant.RelayModeImagesEdits) {
+		req.Set("Content-Type", "application/json")
+	}
 	req.Set("x-goog-api-key", info.ApiKey)
 	return nil
 }
@@ -247,6 +264,11 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.ChannelType == channelconstant.ChannelTypeGeminiImage &&
+		(info.RelayMode == constant.RelayModeImagesGenerations || info.RelayMode == constant.RelayModeImagesEdits) {
+		return GeminiNativeImageHandler(c, info, resp)
+	}
+
 	if info.RelayMode == constant.RelayModeGemini {
 		if strings.Contains(info.RequestURLPath, ":embedContent") ||
 			strings.Contains(info.RequestURLPath, ":batchEmbedContents") {

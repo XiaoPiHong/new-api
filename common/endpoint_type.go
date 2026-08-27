@@ -30,6 +30,11 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 			constant.EndpointTypeImageEdit,
 			constant.EndpointTypeGemini,
 		}
+	case constant.ChannelTypeLeonardoAdmin:
+		endpointTypes = []constant.EndpointType{
+			constant.EndpointTypeImageGeneration,
+			constant.EndpointTypeOpenAIVideo,
+		}
 	case constant.ChannelTypeOpenRouter: // OpenRouter 只支持 OpenAI 端点
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
 	case constant.ChannelTypeXai:

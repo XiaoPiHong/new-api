@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1051,6 +1052,46 @@ func FetchModels(c *gin.Context) {
 			"success": true,
 			"data":    models,
 		})
+		return
+	}
+
+	if req.Type == constant.ChannelTypeLeonardoAdmin {
+		request, err := http.NewRequest(http.MethodGet, strings.TrimRight(baseURL, "/")+"/api/meta", nil)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		request.Header.Set("Authorization", "Bearer "+key)
+		response, err := (&http.Client{}).Do(request)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("获取Leonardo模型失败: %s", err.Error())})
+			return
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		if err != nil || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+			if err == nil {
+				err = fmt.Errorf("upstream returned status %d", response.StatusCode)
+			}
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("获取Leonardo模型失败: %s", err.Error())})
+			return
+		}
+		var meta struct {
+			ImageModels []struct{ ID string `json:"id"` } `json:"imageModels"`
+			VideoModels []struct{ ID string `json:"id"` } `json:"videoModels"`
+		}
+		if err := common.Unmarshal(body, &meta); err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("解析Leonardo模型失败: %s", err.Error())})
+			return
+		}
+		names := make([]string, 0, len(meta.ImageModels)+len(meta.VideoModels))
+		for _, item := range meta.ImageModels {
+			names = append(names, item.ID)
+		}
+		for _, item := range meta.VideoModels {
+			names = append(names, item.ID)
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": names})
 		return
 	}
 

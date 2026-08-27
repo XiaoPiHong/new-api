@@ -62,6 +62,9 @@ const (
 	ChannelTypeKieVideo       = 62
 	// GeminiImage uses the native Gemini generateContent image protocol.
 	ChannelTypeGeminiImage = 63
+	// LeonardoAdmin is the dedicated adapter for the standalone Leonardo
+	// Admin service in leonardo-admin-src.
+	ChannelTypeLeonardoAdmin = 64
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -131,6 +134,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //61
 	"https://api.kie.ai",                        //62
 	"",                                          //63 GeminiImage
+	"",                                          //64 LeonardoAdmin
 }
 
 var ChannelTypeNames = map[int]string{
@@ -194,6 +198,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeJunliai:        "Junliai",
 	ChannelTypeKieVideo:       "KieVideo",
 	ChannelTypeGeminiImage:    "Gemini Image",
+	ChannelTypeLeonardoAdmin:  "Leonardo Admin",
 }
 
 func GetChannelTypeName(channelType int) string {

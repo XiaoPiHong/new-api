@@ -102,6 +102,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Provider image-capable Gemini model IDs',
     },
   },
+  64: {
+    id: 64,
+    name: CHANNEL_TYPES[64],
+    icon: 'openai',
+    hints: {
+      baseUrl: 'Standalone Leonardo Admin URL, e.g. http://127.0.0.1:8787',
+      key: 'LEONARDO_ADMIN_API_KEY (Bearer service key)',
+      models: 'Use management aliases and map them to Leonardo IDs, e.g. leonardo-nano-banana-2',
+      other: 'Supports OpenAI image generation and video endpoints; image edits are not supported yet.',
+    },
+  },
   41: {
     id: 41,
     name: CHANNEL_TYPES[41],

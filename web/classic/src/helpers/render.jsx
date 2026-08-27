@@ -401,6 +401,7 @@ export function getChannelIcon(channelType) {
     case 60: // LconVideo
     case 61: // Junliai
     case 62: // KieVideo
+    case 64: // Leonardo Admin
       return <OpenAI size={iconSize} />;
     case 49: // Coze
       return <Coze size={iconSize} />;

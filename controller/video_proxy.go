@@ -121,6 +121,9 @@ func VideoProxy(c *gin.Context) {
 	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora, constant.ChannelTypeGrokVideo, constant.ChannelTypeJunliai, constant.ChannelTypeLconVideo:
 		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
 		req.Header.Set("Authorization", videoProxyAuthorizationHeader(channel.Key))
+	case constant.ChannelTypeLeonardoAdmin:
+		videoURL = fmt.Sprintf("%s/api/video/jobs/%s/content", baseURL, task.GetUpstreamTaskID())
+		req.Header.Set("Authorization", videoProxyAuthorizationHeader(channel.Key))
 	default:
 		// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
 		videoURL = task.GetResultURL()
@@ -142,10 +145,18 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	fetchSetting := system_setting.GetFetchSetting()
-	if err := common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain); err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: %v", taskID, err))
-		videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("request blocked: %v", err))
-		return
+	// Leonardo Admin's content endpoint is itself the explicitly configured
+	// channel upstream. It is commonly bound to localhost/host.docker.internal,
+	// so applying the public-media SSRF filter here would reject a valid local
+	// deployment before the request reaches the trusted channel.
+	trustedLeonardoMedia := channel.Type == constant.ChannelTypeLeonardoAdmin &&
+		baseURL != "" && strings.HasPrefix(videoURL, strings.TrimRight(baseURL, "/")+"/")
+	if !trustedLeonardoMedia {
+		if err := common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain); err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: %v", taskID, err))
+			videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("request blocked: %v", err))
+			return
+		}
 	}
 
 	req.URL, err = url.Parse(videoURL)

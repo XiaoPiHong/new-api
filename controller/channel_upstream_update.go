@@ -289,6 +289,36 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return normalizeModelNames(models), nil
 	}
 
+	if channel.Type == constant.ChannelTypeLeonardoAdmin {
+		key, _, apiErr := channel.GetNextEnabledKey()
+		if apiErr != nil {
+			return nil, fmt.Errorf("获取渠道密钥失败: %w", apiErr)
+		}
+		headers, err := buildFetchModelsHeaders(channel, strings.TrimSpace(key))
+		if err != nil {
+			return nil, err
+		}
+		body, err := GetResponseBody(http.MethodGet, fmt.Sprintf("%s/api/meta", strings.TrimRight(baseURL, "/")), channel, headers)
+		if err != nil {
+			return nil, err
+		}
+		var meta struct {
+			ImageModels []struct{ ID string `json:"id"` } `json:"imageModels"`
+			VideoModels []struct{ ID string `json:"id"` } `json:"videoModels"`
+		}
+		if err := common.Unmarshal(body, &meta); err != nil {
+			return nil, err
+		}
+		ids := make([]string, 0, len(meta.ImageModels)+len(meta.VideoModels))
+		for _, item := range meta.ImageModels {
+			ids = append(ids, item.ID)
+		}
+		for _, item := range meta.VideoModels {
+			ids = append(ids, item.ID)
+		}
+		return normalizeModelNames(ids), nil
+	}
+
 	var url string
 	switch channel.Type {
 	case constant.ChannelTypeAli:

@@ -65,6 +65,9 @@ func isChannelTestImageGenerationModel(channel *model.Channel, modelName string)
 	if channel != nil && channel.Type == constant.ChannelTypeGeminiImage {
 		return true
 	}
+	if channel != nil && channel.Type == constant.ChannelTypeLeonardoAdmin {
+		return true
+	}
 	return channel != nil &&
 		channel.Type == constant.ChannelTypeVolcEngine &&
 		strings.Contains(lowerModelName, "seedream")

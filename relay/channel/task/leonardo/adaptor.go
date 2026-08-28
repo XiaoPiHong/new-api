@@ -62,7 +62,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 	// Reference images are forwarded to Leonardo Admin. The admin service is
 	// responsible for uploading URL/data references to Leonardo first and then
-	// submitting the resulting image IDs as StartFrame/EndFrame controlnets.
+	// submitting the resulting image IDs in the guidance slots selected by
+	// reference_frame_types (for example StartFrame/EndFrame).
 	// Do not reject images here: xphai-web sends them in the standard `images`
 	// field and channel parameter overrides may add richer reference fields.
 	return nil

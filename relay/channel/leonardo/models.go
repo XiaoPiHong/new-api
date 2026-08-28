@@ -1,8 +1,10 @@
 package leonardo
 
-// Model names exposed by new-api are management aliases. Configure a channel
-// model mapping to translate these names to the IDs understood by Leonardo
-// Admin (for example leonardo-nano-banana-2 -> nano-banana-2).
+// These are compatibility suggestions shown by the channel model catalog.
+// They are not a whitelist: the Leonardo adapter forwards any model name
+// configured on a channel (after model mapping) to Leonardo Admin. This keeps
+// the channel usable when Leonardo publishes a new image model before the
+// static suggestions are updated.
 var ImageModelList = []string{
 	"leonardo-nano-banana-2",
 	"leonardo-gpt-image-2",

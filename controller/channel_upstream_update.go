@@ -316,6 +316,12 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		for _, item := range meta.VideoModels {
 			ids = append(ids, item.ID)
 		}
+		// `/api/meta` is a catalog hint, not an exhaustive upstream
+		// capability list. Keep models already configured on this channel in
+		// the fetched set so the generic Leonardo adapter does not propose
+		// removing a newly released/custom model simply because the admin
+		// catalog has not been refreshed yet.
+		ids = append(ids, channel.GetModels()...)
 		return normalizeModelNames(ids), nil
 	}
 

@@ -28,12 +28,13 @@ type Adaptor struct {
 }
 
 type generateRequest struct {
-	Prompt  string `json:"prompt"`
-	Model   string `json:"model"`
-	Size    string `json:"size,omitempty"`
-	Quality string `json:"quality,omitempty"`
-	Count   int    `json:"count"`
-	DryRun  bool   `json:"dryRun"`
+	Prompt     string         `json:"prompt"`
+	Model      string         `json:"model"`
+	Size       string         `json:"size,omitempty"`
+	Quality    string         `json:"quality,omitempty"`
+	Count      int            `json:"count"`
+	DryRun     bool           `json:"dryRun"`
+	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
 type adminResult struct {

@@ -34,7 +34,11 @@ type submitResponse struct {
 }
 
 type adminResult struct {
-	URLs []string `json:"urls"`
+	URLs         []string `json:"urls"`
+	Status       string   `json:"status"`
+	Error        any      `json:"error"`
+	Ok           *bool    `json:"ok"`
+	GenerationID string   `json:"generationId"`
 }
 
 type adminJob struct {
@@ -56,13 +60,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if taskErr := relaycommon.ValidateMultipartDirect(c, info); taskErr != nil {
 		return taskErr
 	}
-	req, err := relaycommon.GetTaskRequest(c)
-	if err != nil {
-		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
-	}
-	if req.HasImage() || strings.TrimSpace(req.InputReference) != "" {
-		return service.TaskErrorWrapperLocal(errors.New("Leonardo Admin video image references are not supported yet"), "invalid_request", http.StatusBadRequest)
-	}
+	// Reference images are forwarded to Leonardo Admin. The admin service is
+	// responsible for uploading URL/data references to Leonardo first and then
+	// submitting the resulting image IDs as StartFrame/EndFrame controlnets.
+	// Do not reject images here: xphai-web sends them in the standard `images`
+	// field and channel parameter overrides may add richer reference fields.
 	return nil
 }
 
@@ -100,6 +102,28 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	}
 	if seconds := parseSeconds(req); seconds > 0 {
 		body["seconds"] = seconds
+	}
+	// Multipart requests are parsed into TaskSubmitReq before this method is
+	// called, so the original body is not JSON and cannot be unmarshaled below.
+	// Copy the normalized reference/extension fields explicitly to keep image
+	// references and future model parameters working for both JSON and
+	// multipart OpenAI video clients.
+	if req.Mode != "" {
+		body["mode"] = req.Mode
+	}
+	if req.Image != "" {
+		body["image"] = req.Image
+	}
+	if len(req.Images) > 0 {
+		body["images"] = req.Images
+	}
+	if req.InputReference != "" {
+		body["input_reference"] = req.InputReference
+	}
+	for key, value := range req.Metadata {
+		if _, reserved := body[key]; !reserved && key != "dryRun" {
+			body[key] = value
+		}
 	}
 
 	// Preserve explicitly supplied extension fields while forcing security-
@@ -192,13 +216,14 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		return nil, errors.Wrap(err, "unmarshal Leonardo Admin job")
 	}
 	result := &relaycommon.TaskInfo{Code: 0}
-	if strings.TrimSpace(job.Status) == "" && job.Error != nil {
+	topStatus := strings.ToLower(strings.TrimSpace(job.Status))
+	if topStatus == "" && job.Error != nil {
 		result.Status = model.TaskStatusFailure
 		result.Progress = taskcommon.ProgressComplete
 		result.Reason = errorMessage(job.Error)
 		return result, nil
 	}
-	switch strings.ToLower(strings.TrimSpace(job.Status)) {
+	switch topStatus {
 	case "queued", "pending":
 		result.Status = model.TaskStatusQueued
 		result.Progress = taskcommon.ProgressQueued
@@ -206,9 +231,30 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.Status = model.TaskStatusInProgress
 		result.Progress = taskcommon.ProgressInProgress
 	case "complete", "completed", "success", "succeeded":
-		result.Status = model.TaskStatusSuccess
-		result.Progress = taskcommon.ProgressComplete
 		result.Url = firstVideoURL(job)
+		// Leonardo Admin wraps per-account failures in an outer job with
+		// status=complete. Do not turn a failed result (or a completed result
+		// without any media URL) into a false SUCCESS; otherwise new-api will
+		// expose /content and the caller receives a misleading 409/502.
+		if result.Url != "" {
+			result.Status = model.TaskStatusSuccess
+			result.Progress = taskcommon.ProgressComplete
+			break
+		}
+		if failed, reason := adminJobFailure(job); failed {
+			result.Status = model.TaskStatusFailure
+			result.Progress = taskcommon.ProgressComplete
+			result.Reason = reason
+			break
+		}
+		if adminJobPending(job) {
+			result.Status = model.TaskStatusInProgress
+			result.Progress = taskcommon.ProgressInProgress
+			break
+		}
+		result.Status = model.TaskStatusFailure
+		result.Progress = taskcommon.ProgressComplete
+		result.Reason = "Leonardo Admin completed without a video URL"
 	case "error", "failed", "failure", "cancelled", "canceled":
 		result.Status = model.TaskStatusFailure
 		result.Progress = taskcommon.ProgressComplete
@@ -218,6 +264,44 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.Progress = taskcommon.ProgressInProgress
 	}
 	return result, nil
+}
+
+// adminJobResults returns both result locations used by the Admin API. The
+// output location is used by some historical job serializers.
+func adminJobResults(job adminJob) []adminResult {
+	return append(append([]adminResult{}, job.Results...), job.Output.Results...)
+}
+
+func adminJobFailure(job adminJob) (bool, string) {
+	if job.Error != nil {
+		return true, errorMessage(job.Error)
+	}
+	for _, item := range adminJobResults(job) {
+		status := strings.ToLower(strings.TrimSpace(item.Status))
+		failed := item.Ok != nil && !*item.Ok
+		failed = failed || status == "failed" || status == "failure" || status == "error" || status == "cancelled" || status == "canceled"
+		if item.Error != nil {
+			failed = true
+		}
+		if failed {
+			reason := errorMessage(item.Error)
+			if item.Error == nil {
+				reason = firstNonEmpty(status, "Leonardo Admin video generation failed")
+			}
+			return true, reason
+		}
+	}
+	return false, ""
+}
+
+func adminJobPending(job adminJob) bool {
+	for _, item := range adminJobResults(job) {
+		switch strings.ToLower(strings.TrimSpace(item.Status)) {
+		case "queued", "pending", "running", "processing", "in_progress", "not_start", "submitted":
+			return true
+		}
+	}
+	return false
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {

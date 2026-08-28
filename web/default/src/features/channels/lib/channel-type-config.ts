@@ -109,8 +109,8 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     hints: {
       baseUrl: 'Standalone Leonardo Admin URL, e.g. http://127.0.0.1:8787',
       key: 'LEONARDO_ADMIN_API_KEY (Bearer service key)',
-      models: 'Use management aliases and map them to Leonardo IDs, e.g. leonardo-nano-banana-2',
-      other: 'Supports OpenAI image generation and video endpoints; image edits are not supported yet.',
+      models: 'Any Leonardo image/video model ID; use model mapping for management aliases',
+      other: 'Supports OpenAI image generation and video endpoints. New model slugs are forwarded without a code change; model-specific fields can be added through parameter overrides.',
     },
   },
   41: {

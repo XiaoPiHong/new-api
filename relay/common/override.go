@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
@@ -2041,7 +2042,8 @@ func mergeObjects(data []byte, path string, value interface{}, keepOrigin bool) 
 
 // BuildParamOverrideContext 提供 ApplyParamOverride 可用的上下文信息。
 // 目前内置以下字段：
-//   - upstream_model/model：始终为通道映射后的上游模型名。
+//   - upstream_model/model：Leonardo Admin 使用通道映射后的上游模型名；
+//     其他渠道保留历史行为，使用 ChannelMeta 中的模型名。
 //   - original_model：请求最初指定的模型名。
 //   - request_path：请求路径
 //   - is_channel_test：是否为渠道测试请求（同 is_test）。
@@ -2051,9 +2053,23 @@ func BuildParamOverrideContext(info *RelayInfo) map[string]interface{} {
 	}
 
 	ctx := make(map[string]interface{})
-	if info.ChannelMeta != nil && info.ChannelMeta.UpstreamModelName != "" {
-		ctx["model"] = info.ChannelMeta.UpstreamModelName
-		ctx["upstream_model"] = info.ChannelMeta.UpstreamModelName
+	// Keep the historical context behavior for every existing channel. Only
+	// Leonardo Admin needs a special case: its override conditions should match
+	// the model name after new-api's model mapping has been applied.
+	if info.ChannelMeta != nil {
+		if info.ChannelMeta.ChannelType == constant.ChannelTypeLeonardoAdmin {
+			upstreamModel := info.ChannelMeta.UpstreamModelName
+			if mapped := strings.TrimSpace(info.UpstreamModelName); mapped != "" {
+				upstreamModel = mapped
+			}
+			if upstreamModel != "" {
+				ctx["model"] = upstreamModel
+				ctx["upstream_model"] = upstreamModel
+			}
+		} else if info.ChannelMeta.UpstreamModelName != "" {
+			ctx["model"] = info.ChannelMeta.UpstreamModelName
+			ctx["upstream_model"] = info.ChannelMeta.UpstreamModelName
+		}
 	}
 	if info.OriginModelName != "" {
 		ctx["original_model"] = info.OriginModelName

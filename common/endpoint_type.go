@@ -31,10 +31,7 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 			constant.EndpointTypeGemini,
 		}
 	case constant.ChannelTypeLeonardoAdmin:
-		endpointTypes = []constant.EndpointType{
-			constant.EndpointTypeImageGeneration,
-			constant.EndpointTypeOpenAIVideo,
-		}
+		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
 	case constant.ChannelTypeOpenRouter: // OpenRouter 只支持 OpenAI 端点
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
 	case constant.ChannelTypeXai:
@@ -58,7 +55,11 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 			endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
 		}
 	}
-	if IsImageGenerationModel(modelName) {
+	// Leonardo Admin is intentionally a video-only proxy. Keep the generic
+	// image-model heuristic from adding an image endpoint if a future video
+	// slug happens to contain an image-related keyword. Other channel types
+	// retain their existing image endpoint detection.
+	if channelType != constant.ChannelTypeLeonardoAdmin && IsImageGenerationModel(modelName) {
 		// add to first
 		endpointTypes = append([]constant.EndpointType{constant.EndpointTypeImageGeneration}, endpointTypes...)
 	}

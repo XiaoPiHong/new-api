@@ -1077,17 +1077,13 @@ func FetchModels(c *gin.Context) {
 			return
 		}
 		var meta struct {
-			ImageModels []struct{ ID string `json:"id"` } `json:"imageModels"`
 			VideoModels []struct{ ID string `json:"id"` } `json:"videoModels"`
 		}
 		if err := common.Unmarshal(body, &meta); err != nil {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("解析Leonardo模型失败: %s", err.Error())})
 			return
 		}
-		names := make([]string, 0, len(meta.ImageModels)+len(meta.VideoModels))
-		for _, item := range meta.ImageModels {
-			names = append(names, item.ID)
-		}
+		names := make([]string, 0, len(meta.VideoModels))
 		for _, item := range meta.VideoModels {
 			names = append(names, item.ID)
 		}

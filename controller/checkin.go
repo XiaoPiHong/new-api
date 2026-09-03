@@ -12,6 +12,26 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GetCheckinConfig 获取 xphai-web 所需的签到配置。
+// 该接口只返回签到和 Turnstile 相关字段，避免复用 /api/status 暴露无关系统配置。
+func GetCheckinConfig(c *gin.Context) {
+	turnstileEnabled := common.TurnstileCheckEnabled
+	turnstileSiteKey := ""
+	if turnstileEnabled {
+		turnstileSiteKey = common.TurnstileSiteKey
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"checkin_enabled":    operation_setting.GetCheckinSetting().Enabled,
+			"turnstile_check":    turnstileEnabled,
+			"turnstile_site_key": turnstileSiteKey,
+		},
+	})
+}
+
 // GetCheckinStatus 获取用户签到状态和历史记录
 func GetCheckinStatus(c *gin.Context) {
 	setting := operation_setting.GetCheckinSetting()

@@ -52,6 +52,10 @@ func SetApiRouter(router *gin.Engine) {
 		// Standard OAuth providers (GitHub, Discord, OIDC, LinuxDO) - unified route
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimit(), controller.HandleOAuth)
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
+		// Check-in config only contains public feature flags and the Turnstile site key.
+		// Keep it outside selfRoute so the frontend can bootstrap the check-in card
+		// before the user's dashboard token has finished synchronizing.
+		apiRouter.GET("/user/checkin/config", controller.GetCheckinConfig)
 
 		apiRouter.POST("/stripe/webhook", controller.StripeWebhook)
 		apiRouter.POST("/creem/webhook", controller.CreemWebhook)

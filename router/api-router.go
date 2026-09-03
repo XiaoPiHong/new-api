@@ -199,6 +199,12 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.POST("/waffo-pancake/subscription-product", controller.CreateWaffoPancakeSubscriptionProduct)
 			optionRoute.POST("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions)
 		}
+		relayServiceAuthRoute := apiRouter.Group("/relay-service-auth")
+		relayServiceAuthRoute.Use(middleware.RootAuth())
+		{
+			relayServiceAuthRoute.GET("", controller.GetRelayServiceAuth)
+			relayServiceAuthRoute.PUT("", controller.UpdateRelayServiceAuth)
+		}
 
 		// Custom OAuth provider management (root only)
 		customOAuthRoute := apiRouter.Group("/custom-oauth-provider")

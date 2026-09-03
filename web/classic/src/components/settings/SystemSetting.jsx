@@ -31,6 +31,8 @@ import {
   Card,
   Radio,
   Select,
+  Input,
+  Checkbox,
 } from '@douyinfe/semi-ui';
 const { Text } = Typography;
 import {
@@ -126,6 +128,12 @@ const SystemSetting = () => {
   const [domainList, setDomainList] = useState([]);
   const [ipList, setIpList] = useState([]);
   const [allowedPorts, setAllowedPorts] = useState([]);
+  const [relayServiceAuth, setRelayServiceAuth] = useState({
+    enabled: false,
+    secretConfigured: false,
+  });
+  const [relayServiceSecret, setRelayServiceSecret] = useState('');
+  const [relayServiceAuthLoading, setRelayServiceAuthLoading] = useState(false);
 
   const getOptions = async () => {
     setLoading(true);
@@ -238,7 +246,61 @@ const SystemSetting = () => {
 
   useEffect(() => {
     getOptions();
+    getRelayServiceAuth();
   }, []);
+
+  const getRelayServiceAuth = async () => {
+    setRelayServiceAuthLoading(true);
+    try {
+      const res = await API.get('/api/relay-service-auth');
+      const { success, message, data } = res.data;
+      if (success && data) {
+        setRelayServiceAuth({
+          enabled: Boolean(data.enabled),
+          secretConfigured: Boolean(data.secret_configured),
+        });
+      } else if (!success) {
+        showError(message);
+      }
+    } finally {
+      setRelayServiceAuthLoading(false);
+    }
+  };
+
+  const updateRelayServiceAuth = async () => {
+    const secret = relayServiceSecret.trim();
+    if (
+      relayServiceAuth.enabled &&
+      !relayServiceAuth.secretConfigured &&
+      !secret
+    ) {
+      showError(t('启用服务间鉴权前必须配置密钥'));
+      return;
+    }
+
+    setRelayServiceAuthLoading(true);
+    try {
+      const res = await API.put('/api/relay-service-auth', {
+        enabled: relayServiceAuth.enabled,
+        ...(secret ? { secret } : {}),
+      });
+      const { success, message, data } = res.data;
+      if (!success) {
+        showError(message);
+        return;
+      }
+      if (data) {
+        setRelayServiceAuth({
+          enabled: Boolean(data.enabled),
+          secretConfigured: Boolean(data.secret_configured),
+        });
+      }
+      setRelayServiceSecret('');
+      showSuccess(t('服务间鉴权设置已更新'));
+    } finally {
+      setRelayServiceAuthLoading(false);
+    }
+  };
 
   const updateOptions = async (options) => {
     setLoading(true);
@@ -980,6 +1042,79 @@ const SystemSetting = () => {
 
                   <Button onClick={submitSSRF} style={{ marginTop: 16 }}>
                     {t('更新SSRF防护设置')}
+                  </Button>
+                </Form.Section>
+              </Card>
+
+              <Card>
+                <Form.Section text={t('服务间鉴权设置')}>
+                  <Banner
+                    type='info'
+                    description={t(
+                      '启用后，/v1 relay 请求必须携带 X-Xphai-Relay-Secret 请求头。请将相同密钥配置到 xphai-web 和 SSO。',
+                    )}
+                    style={{ marginBottom: 20, marginTop: 16 }}
+                  />
+                  <Row
+                    gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+                  >
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Checkbox
+                        checked={relayServiceAuth.enabled}
+                        onChange={(event) =>
+                          setRelayServiceAuth((current) => ({
+                            ...current,
+                            enabled: event.target.checked,
+                          }))
+                        }
+                        disabled={relayServiceAuthLoading}
+                      >
+                        {t('启用服务间鉴权')}
+                      </Checkbox>
+                    </Col>
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Text type='tertiary'>
+                        {relayServiceAuth.secretConfigured
+                          ? t('服务间鉴权密钥已配置')
+                          : t('尚未配置服务间鉴权密钥')}
+                      </Text>
+                    </Col>
+                  </Row>
+                  <Row
+                    gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+                    style={{ marginTop: 16 }}
+                  >
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Text strong>{t('服务间鉴权密钥')}</Text>
+                      <Input
+                        value={relayServiceSecret}
+                        onChange={(value) => setRelayServiceSecret(value)}
+                        type='password'
+                        placeholder={
+                          relayServiceAuth.secretConfigured
+                            ? t('留空则保留当前密钥')
+                            : t('请输入服务间共享密钥')
+                        }
+                        autoComplete='new-password'
+                        disabled={relayServiceAuthLoading}
+                        style={{ marginTop: 8, width: '100%' }}
+                      />
+                    </Col>
+                  </Row>
+                  <Text
+                    type='tertiary'
+                    style={{ display: 'block', marginTop: 12 }}
+                  >
+                    {t(
+                      '真实密钥不会返回到页面。修改密钥后请同步更新 xphai-web 和 SSO，否则请求会返回 403。',
+                    )}
+                  </Text>
+                  <Button
+                    onClick={updateRelayServiceAuth}
+                    loading={relayServiceAuthLoading}
+                    style={{ marginTop: 16 }}
+                  >
+                    {t('保存服务间鉴权设置')}
                   </Button>
                 </Form.Section>
               </Card>

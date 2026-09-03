@@ -21,6 +21,8 @@ import type {
   ConfirmPaymentComplianceResponse,
   DeleteLogsResponse,
   FetchUpstreamRatiosRequest,
+  RelayServiceAuthResponse,
+  RelayServiceAuthUpdateRequest,
   SystemOptionsResponse,
   UpdateOptionRequest,
   UpdateOptionResponse,
@@ -35,6 +37,21 @@ export async function getSystemOptions() {
 
 export async function updateSystemOption(request: UpdateOptionRequest) {
   const res = await api.put<UpdateOptionResponse>('/api/option/', request)
+  return res.data
+}
+
+export async function getRelayServiceAuth() {
+  const res = await api.get<RelayServiceAuthResponse>('/api/relay-service-auth')
+  return res.data
+}
+
+export async function updateRelayServiceAuth(
+  request: RelayServiceAuthUpdateRequest
+) {
+  const res = await api.put<RelayServiceAuthResponse>(
+    '/api/relay-service-auth',
+    request
+  )
   return res.data
 }
 

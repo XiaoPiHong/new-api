@@ -39,6 +39,22 @@ export type UpdateOptionResponse = {
   message: string
 }
 
+export type RelayServiceAuthConfig = {
+  enabled: boolean
+  secret_configured: boolean
+}
+
+export type RelayServiceAuthResponse = {
+  success: boolean
+  message: string
+  data?: RelayServiceAuthConfig
+}
+
+export type RelayServiceAuthUpdateRequest = {
+  enabled?: boolean
+  secret?: string
+}
+
 export type ConfirmPaymentComplianceResponse = {
   success: boolean
   message: string

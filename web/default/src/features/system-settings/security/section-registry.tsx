@@ -21,6 +21,7 @@ import { SensitiveWordsSection } from '../request-limits/sensitive-words-section
 import { SSRFSection } from '../request-limits/ssrf-section'
 import type { SecuritySettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { RelayServiceAuthSection } from './relay-service-auth-section'
 
 const SECURITY_SECTIONS = [
   {
@@ -76,6 +77,11 @@ const SECURITY_SECTIONS = [
         }}
       />
     ),
+  },
+  {
+    id: 'relay-auth',
+    titleKey: 'Relay Service Authentication',
+    build: () => <RelayServiceAuthSection />,
   },
 ] as const
 

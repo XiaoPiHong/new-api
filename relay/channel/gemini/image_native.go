@@ -211,6 +211,10 @@ func buildGeminiImageConfig(size string) (json.RawMessage, error) {
 		// defaults
 	case "2K", "2048x2048":
 		imageSize = "2K"
+	case "2048x1024":
+		// Preserve the requested sprite-sheet ratio; support depends on the upstream provider.
+		imageSize = "2K"
+		aspectRatio = "2:1"
 	case "1536x1024":
 		aspectRatio = "3:2"
 	case "1024x1536":

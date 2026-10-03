@@ -65,10 +65,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
+	if hasImageValue(bodyMap["video"]) {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("Junliai 通用视频接口不支持 video 编辑参数，请使用 reference_videos 提交参考视频"), "invalid_request", http.StatusBadRequest)
+	}
 	info.Action = constant.TaskActionTextGenerate
-	if stringFromMap(bodyMap, "video") != "" {
-		info.Action = constant.TaskActionGenerate
-	} else if hasReferenceImageInput(bodyMap) {
+	if hasReferenceImageInput(bodyMap) || hasImageValue(bodyMap["reference_videos"]) {
 		info.Action = constant.TaskActionReferenceGenerate
 	}
 
@@ -84,9 +85,6 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	if info.Action == constant.TaskActionGenerate {
-		return fmt.Sprintf("%s%s", a.baseURL, VideoEditEndpoint), nil
-	}
 	return fmt.Sprintf("%s%s", a.baseURL, VideoGenerationEndpoint), nil
 }
 
@@ -122,11 +120,25 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 			bodyMap["images"] = []string{inputReference}
 		}
 	}
-	normalizeVideoURLObject(bodyMap)
 	if err := a.normalizeReferenceImagesDataURLObjects(bodyMap, info); err != nil {
 		return nil, err
 	}
-	normalizeJunliaiVideoRequestBody(bodyMap, info.Action)
+	for _, field := range []string{"start_frame", "end_frame"} {
+		value, exists := bodyMap[field]
+		if !exists {
+			continue
+		}
+		imageURL, err := mediaURLString(value)
+		if err != nil {
+			return nil, errors.Wrap(err, field)
+		}
+		dataURL, err := a.imageReferenceDataURL(imageURL, info)
+		if err != nil {
+			return nil, errors.Wrap(err, field)
+		}
+		bodyMap[field] = dataURL
+	}
+	normalizeJunliaiVideoRequestBody(bodyMap)
 
 	newBody, err := common.Marshal(bodyMap)
 	if err != nil {
@@ -136,7 +148,24 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
-	return channel.DoTaskApiRequest(a, c, info, requestBody)
+	// 参数覆盖在 BuildRequestBody 之后执行，保留旧的 reference_images.0.url 取值路径；
+	// 真正发送前再转成通用接口的字符串格式，首尾帧覆盖规则无需随协议切换而重写。
+	body, err := io.ReadAll(requestBody)
+	if err != nil {
+		return nil, errors.Wrap(err, "read_request_body_failed")
+	}
+	bodyMap, err := parseRequestBodyMap(body)
+	if err != nil {
+		return nil, err
+	}
+	if err := normalizeJunliaiVideoMedia(bodyMap); err != nil {
+		return nil, err
+	}
+	body, err = common.Marshal(bodyMap)
+	if err != nil {
+		return nil, err
+	}
+	return channel.DoTaskApiRequest(a, c, info, bytes.NewReader(body))
 }
 
 func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
@@ -206,16 +235,19 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusSuccess
 		taskResult.Progress = taskcommon.ProgressComplete
 		taskResult.Url = firstJunliaiVideoResultURL(respBody)
-	case "failed", "fail", "cancelled", "canceled":
+	case "failed", "fail", "cancelled", "canceled", "expired":
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = taskcommon.ProgressComplete
 		taskResult.Reason = failureReason(resTask)
+		if status == "expired" && taskResult.Reason == "task failed" {
+			taskResult.Reason = "Junliai 视频任务已过期"
+		}
 	default:
 		taskResult.Status = model.TaskStatusInProgress
 		taskResult.Progress = taskcommon.ProgressInProgress
 	}
 
-	if resTask.Progress > 0 && resTask.Progress < 100 {
+	if taskResult.Status != model.TaskStatusSuccess && taskResult.Status != model.TaskStatusFailure && resTask.Progress > 0 && resTask.Progress < 100 {
 		taskResult.Progress = fmt.Sprintf("%d%%", resTask.Progress)
 	}
 	return &taskResult, nil
@@ -266,15 +298,11 @@ func parseRequestBodyMap(body []byte) (map[string]any, error) {
 	return bodyMap, nil
 }
 
-func normalizeVideoURLObject(bodyMap map[string]any) {
-	if value := stringFromMap(bodyMap, "video"); value != "" {
-		bodyMap["video"] = map[string]any{"url": value}
-	}
-}
-
 func hasReferenceImageInput(bodyMap map[string]any) bool {
 	return hasImageValue(bodyMap["reference_images"]) ||
 		hasImageValue(bodyMap["images"]) ||
+		hasImageValue(bodyMap["start_frame"]) ||
+		hasImageValue(bodyMap["end_frame"]) ||
 		stringFromMap(bodyMap, "image") != "" ||
 		stringFromMap(bodyMap, "input_reference") != ""
 }
@@ -313,34 +341,136 @@ func hasImageValue(value any) bool {
 	return false
 }
 
-func normalizeJunliaiVideoRequestBody(bodyMap map[string]any, action string) {
+func normalizeJunliaiVideoRequestBody(bodyMap map[string]any) {
 	allowed := map[string]struct{}{
-		"model":  {},
-		"prompt": {},
+		"model":            {},
+		"prompt":           {},
+		"duration":         {},
+		"size":             {},
+		"aspect_ratio":     {},
+		"resolution":       {},
+		"reference_mode":   {},
+		"reference_images": {},
+		"start_frame":      {},
+		"end_frame":        {},
+		"reference_videos": {},
+		"audio_reference":  {},
+		"audio_references": {},
+		"audio":            {},
+		"response_format":  {},
 	}
-	if action == constant.TaskActionGenerate {
-		allowed["video"] = struct{}{}
-	} else {
-		if duration, ok := positiveNumberFromAny(firstMapValue(bodyMap, "duration", "seconds")); ok {
-			bodyMap["duration"] = duration
+	if duration, ok := positiveNumberFromAny(firstMapValue(bodyMap, "duration", "seconds")); ok {
+		bodyMap["duration"] = duration
+	}
+	if _, ok := bodyMap["aspect_ratio"]; !ok {
+		if aspectRatio := stringFromMap(bodyMap, "aspectRatio"); aspectRatio != "" {
+			bodyMap["aspect_ratio"] = aspectRatio
 		}
-		if _, ok := bodyMap["aspect_ratio"]; !ok {
-			if aspectRatio := stringFromMap(bodyMap, "aspectRatio"); aspectRatio != "" {
-				bodyMap["aspect_ratio"] = aspectRatio
-			}
+	}
+	// 兼容原 Grok 请求的音频字段，通用接口使用 audio_references。
+	if _, ok := bodyMap["audio_references"]; !ok {
+		if value, exists := bodyMap["reference_audios"]; exists {
+			bodyMap["audio_references"] = value
 		}
-
-		allowed["duration"] = struct{}{}
-		allowed["aspect_ratio"] = struct{}{}
-		allowed["resolution"] = struct{}{}
-		allowed["reference_images"] = struct{}{}
-		allowed["reference_audios"] = struct{}{}
+	}
+	// 通用接口需显式请求 URL，否则完成态只提供需要鉴权的 /content 下载入口。
+	if _, ok := bodyMap["response_format"]; !ok {
+		bodyMap["response_format"] = "url"
 	}
 	for key := range bodyMap {
 		if _, ok := allowed[key]; !ok {
 			delete(bodyMap, key)
 		}
 	}
+}
+
+// 通用视频协议使用媒体字符串，不接受 Grok 的 {url: ...} 图片对象。
+// 此转换只发生在 Junliai 发送阶段，避免影响共享的参数覆盖引擎和其他渠道。
+func normalizeJunliaiVideoMedia(bodyMap map[string]any) error {
+	for _, field := range []string{"reference_images", "reference_videos", "audio_reference", "audio_references"} {
+		value, exists := bodyMap[field]
+		if !exists {
+			continue
+		}
+		urls, err := mediaURLStrings(value)
+		if err != nil {
+			return errors.Wrap(err, field)
+		}
+		if len(urls) == 0 {
+			delete(bodyMap, field)
+		} else {
+			bodyMap[field] = urls
+		}
+	}
+	for _, field := range []string{"start_frame", "end_frame"} {
+		value, exists := bodyMap[field]
+		if !exists {
+			continue
+		}
+		url, err := mediaURLString(value)
+		if err != nil {
+			return errors.Wrap(err, field)
+		}
+		if url == "" {
+			delete(bodyMap, field)
+		} else {
+			bodyMap[field] = url
+		}
+	}
+	// 覆盖规则可以把普通参考图改为首尾帧，互斥校验必须放在覆盖之后。
+	hasStart := hasImageValue(bodyMap["start_frame"])
+	hasEnd := hasImageValue(bodyMap["end_frame"])
+	if hasEnd && !hasStart {
+		return fmt.Errorf("Junliai end_frame 必须搭配 start_frame")
+	}
+	if (hasStart || hasEnd) && (hasImageValue(bodyMap["reference_images"]) || hasImageValue(bodyMap["reference_videos"])) {
+		return fmt.Errorf("Junliai 首尾帧不能与普通图片或视频参考混用")
+	}
+	if stringFromMap(bodyMap, "response_format") == "" {
+		bodyMap["response_format"] = "url"
+	}
+	return nil
+}
+
+func mediaURLStrings(value any) ([]string, error) {
+	var values []any
+	switch v := value.(type) {
+	case []any:
+		values = v
+	case []string:
+		for _, item := range v {
+			values = append(values, item)
+		}
+	default:
+		values = []any{value}
+	}
+	urls := make([]string, 0, len(values))
+	for _, item := range values {
+		url, err := mediaURLString(item)
+		if err != nil {
+			return nil, err
+		}
+		if url != "" {
+			urls = append(urls, url)
+		}
+	}
+	return urls, nil
+}
+
+func mediaURLString(value any) (string, error) {
+	switch v := value.(type) {
+	case nil:
+		return "", nil
+	case string:
+		return strings.TrimSpace(v), nil
+	case map[string]any:
+		for _, key := range []string{"url", "imageUrl", "image_url", "dataUrl", "data_url"} {
+			if url, ok := v[key].(string); ok && strings.TrimSpace(url) != "" {
+				return strings.TrimSpace(url), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("媒体参数必须为字符串或包含 url 的对象")
 }
 
 func firstJunliaiVideoResultURL(respBody []byte) string {

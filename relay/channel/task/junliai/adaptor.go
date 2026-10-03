@@ -120,9 +120,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 			bodyMap["images"] = []string{inputReference}
 		}
 	}
-	if err := a.normalizeReferenceImagesDataURLObjects(bodyMap, info); err != nil {
-		return nil, err
-	}
+	normalizeReferenceImageObjects(bodyMap)
 	for _, field := range []string{"start_frame", "end_frame"} {
 		value, exists := bodyMap[field]
 		if !exists {
@@ -132,11 +130,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		if err != nil {
 			return nil, errors.Wrap(err, field)
 		}
-		dataURL, err := a.imageReferenceDataURL(imageURL, info)
-		if err != nil {
-			return nil, errors.Wrap(err, field)
-		}
-		bodyMap[field] = dataURL
+		bodyMap[field] = imageURL
 	}
 	normalizeJunliaiVideoRequestBody(bodyMap)
 
@@ -148,8 +142,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
-	// 参数覆盖在 BuildRequestBody 之后执行，保留旧的 reference_images.0.url 取值路径；
-	// 真正发送前再转成通用接口的字符串格式，首尾帧覆盖规则无需随协议切换而重写。
+	// 参数覆盖已执行，此时首尾帧保留原始 URL，媒体字段再转成通用接口的字符串格式。
 	body, err := io.ReadAll(requestBody)
 	if err != nil {
 		return nil, errors.Wrap(err, "read_request_body_failed")
@@ -160,6 +153,16 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	}
 	if err := normalizeJunliaiVideoMedia(bodyMap); err != nil {
 		return nil, err
+	}
+	// 只将覆盖后仍保留的普通参考图转为 Data URL，首尾帧交由上游直接读取。
+	if images, ok := bodyMap["reference_images"].([]string); ok {
+		for i, image := range images {
+			dataURL, err := a.imageReferenceDataURL(image, info)
+			if err != nil {
+				return nil, errors.Wrapf(err, "reference_images.%d", i)
+			}
+			images[i] = dataURL
+		}
 	}
 	body, err = common.Marshal(bodyMap)
 	if err != nil {
@@ -591,71 +594,54 @@ func positiveNumberFromAny(value any) (any, bool) {
 	return nil, false
 }
 
-func (a *TaskAdaptor) normalizeReferenceImagesDataURLObjects(bodyMap map[string]any, info *relaycommon.RelayInfo) error {
-	if images, err := a.imageDataURLObjects(bodyMap["reference_images"], info); err != nil {
-		return err
-	} else if len(images) > 0 {
+// 参数覆盖前只统一对象结构，不下载图片，确保 reference_images.0.url 能复制原始 URL 到首尾帧。
+func normalizeReferenceImageObjects(bodyMap map[string]any) {
+	if images := imageURLObjects(bodyMap["reference_images"]); len(images) > 0 {
 		bodyMap["reference_images"] = images
-	} else if images, err := a.imageDataURLObjects(bodyMap["images"], info); err != nil {
-		return err
-	} else if len(images) > 0 {
+	} else if images := imageURLObjects(bodyMap["images"]); len(images) > 0 {
 		bodyMap["reference_images"] = images
 	}
 	delete(bodyMap, "images")
 	delete(bodyMap, "image")
 	delete(bodyMap, "input_reference")
-	return nil
 }
 
-func (a *TaskAdaptor) imageDataURLObjects(value any, info *relaycommon.RelayInfo) ([]map[string]any, error) {
+func imageURLObjects(value any) []map[string]any {
 	switch images := value.(type) {
 	case []string:
 		result := make([]map[string]any, 0, len(images))
 		for _, image := range images {
-			imageObj, err := a.imageDataURLObject(image, info)
-			if err != nil {
-				return nil, err
-			}
+			imageObj := imageURLObject(image)
 			if imageObj != nil {
 				result = append(result, imageObj)
 			}
 		}
-		return result, nil
+		return result
 	case []any:
 		result := make([]map[string]any, 0, len(images))
 		for _, image := range images {
-			imageObj, err := a.imageDataURLObject(image, info)
-			if err != nil {
-				return nil, err
-			}
+			imageObj := imageURLObject(image)
 			if imageObj != nil {
 				result = append(result, imageObj)
 			}
 		}
-		return result, nil
+		return result
 	default:
-		imageObj, err := a.imageDataURLObject(value, info)
-		if err != nil {
-			return nil, err
-		}
+		imageObj := imageURLObject(value)
 		if imageObj != nil {
-			return []map[string]any{imageObj}, nil
+			return []map[string]any{imageObj}
 		}
 	}
-	return nil, nil
+	return nil
 }
 
-func (a *TaskAdaptor) imageDataURLObject(value any, info *relaycommon.RelayInfo) (map[string]any, error) {
+func imageURLObject(value any) map[string]any {
 	switch image := value.(type) {
 	case string:
 		if image = strings.TrimSpace(image); image == "" {
-			return nil, nil
+			return nil
 		}
-		dataURL, err := a.imageReferenceDataURL(image, info)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"url": dataURL}, nil
+		return map[string]any{"url": image}
 	case map[string]any:
 		result := make(map[string]any, len(image))
 		for key, value := range image {
@@ -669,18 +655,14 @@ func (a *TaskAdaptor) imageDataURLObject(value any, info *relaycommon.RelayInfo)
 			stringFromMap(result, "data_url"),
 		)
 		if imageURL == "" {
-			return result, nil
+			return result
 		}
-		dataURL, err := a.imageReferenceDataURL(imageURL, info)
-		if err != nil {
-			return nil, err
-		}
-		result["url"] = dataURL
+		result["url"] = imageURL
 		delete(result, "imageUrl")
 		delete(result, "image_url")
 		delete(result, "dataUrl")
 		delete(result, "data_url")
-		return result, nil
+		return result
 	case map[string]string:
 		result := make(map[string]any, len(image))
 		for key, value := range image {
@@ -694,20 +676,16 @@ func (a *TaskAdaptor) imageDataURLObject(value any, info *relaycommon.RelayInfo)
 			stringFromMap(result, "data_url"),
 		)
 		if imageURL == "" {
-			return result, nil
+			return result
 		}
-		dataURL, err := a.imageReferenceDataURL(imageURL, info)
-		if err != nil {
-			return nil, err
-		}
-		result["url"] = dataURL
+		result["url"] = imageURL
 		delete(result, "imageUrl")
 		delete(result, "image_url")
 		delete(result, "dataUrl")
 		delete(result, "data_url")
-		return result, nil
+		return result
 	}
-	return nil, nil
+	return nil
 }
 
 func (a *TaskAdaptor) imageReferenceDataURL(image string, info *relaycommon.RelayInfo) (string, error) {

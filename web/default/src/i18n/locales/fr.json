@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Set Request Body Format": "Définir le format du corps de requête",
+    "Configure request body encoding and scalar field types for supported task adaptors": "Configurer l’encodage du corps de requête et les types de champs scalaires pour les adaptateurs de tâches compatibles",
+    "Rule {{line}} request body configuration is invalid": "La configuration du corps de requête de la règle {{line}} est invalide",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

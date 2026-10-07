@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Set Request Body Format": "Задать формат тела запроса",
+    "Configure request body encoding and scalar field types for supported task adaptors": "Настроить кодирование тела запроса и типы скалярных полей для поддерживаемых адаптеров задач",
+    "Rule {{line}} request body configuration is invalid": "Некорректная конфигурация тела запроса в правиле {{line}}",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

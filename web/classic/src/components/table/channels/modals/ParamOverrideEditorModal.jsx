@@ -63,6 +63,7 @@ const OPERATION_MODE_OPTIONS = [
   { label: '清理对象项', value: 'prune_objects' },
   { label: '请求头透传', value: 'pass_headers' },
   { label: '字段同步', value: 'sync_fields' },
+  { label: '设置请求体格式', value: 'set_request_body' },
   { label: '设置请求头', value: 'set_header' },
   { label: '删除请求头', value: 'delete_header' },
   { label: '复制请求头', value: 'copy_header' },
@@ -108,6 +109,7 @@ const MODE_META = {
   prune_objects: { pathOptional: true, value: true },
   pass_headers: { value: true, keepOrigin: true },
   sync_fields: { from: true, to: true },
+  set_request_body: { value: true },
   set_header: { path: true, value: true, keepOrigin: true },
   delete_header: { path: true },
   copy_header: { from: true, to: true, keepOrigin: true, pathAlias: true },
@@ -123,6 +125,7 @@ const VALUE_REQUIRED_MODES = new Set([
   'return_error',
   'prune_objects',
   'pass_headers',
+  'set_request_body',
 ]);
 
 const FROM_REQUIRED_MODES = new Set([
@@ -163,6 +166,7 @@ const MODE_DESCRIPTIONS = {
   prune_objects: '按条件清理对象中的子项',
   pass_headers: '把指定请求头透传到上游请求',
   sync_fields: '在一个字段有值、另一个缺失时自动补齐',
+  set_request_body: '为支持此功能的任务适配器配置请求体格式和标量字段类型',
   set_header: '设置运行期请求头：可直接覆盖整条值，也可对逗号分隔的 token 做删除、替换、追加或白名单保留',
   delete_header: '删除运行期请求头',
   copy_header: '复制请求头',
@@ -242,6 +246,9 @@ const HEADER_VALUE_JSONC_EXAMPLE = `{
 }`;
 
 const getModeValuePlaceholder = (mode) => {
+  if (mode === 'set_request_body') {
+    return '{"format":"json","field_types":{"duration":"integer"}}';
+  }
   if (mode === 'set_header') {
     return [
       '纯字符串（整条覆盖）：',
@@ -998,6 +1005,23 @@ const validateOperations = (operations, t) => {
       String(op.value_text ?? '').trim() === ''
     ) {
       return t('第 {{line}} 条操作缺少值', { line });
+    }
+    if (mode === 'set_request_body') {
+      try {
+        const parsed = JSON.parse(op.value_text);
+        if (
+          !parsed ||
+          typeof parsed !== 'object' ||
+          Array.isArray(parsed) ||
+          !['json', 'multipart'].includes(
+            String(parsed.format).trim().toLowerCase(),
+          )
+        ) {
+          return t('第 {{line}} 条请求体配置无效', { line });
+        }
+      } catch {
+        return t('第 {{line}} 条请求体配置无效', { line });
+      }
     }
     if (mode === 'return_error') {
       const raw = String(op.value_text ?? '').trim();

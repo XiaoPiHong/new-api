@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Set Request Body Format": "设置请求体格式",
+    "Configure request body encoding and scalar field types for supported task adaptors": "为支持此功能的任务适配器配置请求体格式和标量字段类型",
+    "Rule {{line}} request body configuration is invalid": "第 {{line}} 条请求体配置无效",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

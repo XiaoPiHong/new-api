@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Set Request Body Format": "リクエスト本文の形式を設定",
+    "Configure request body encoding and scalar field types for supported task adaptors": "対応するタスクアダプターのリクエスト本文のエンコードとスカラー項目の型を設定",
+    "Rule {{line}} request body configuration is invalid": "ルール {{line}} のリクエスト本文設定が無効です",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

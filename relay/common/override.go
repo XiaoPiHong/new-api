@@ -57,7 +57,7 @@ type ConditionOperation struct {
 
 type ParamOperation struct {
 	Path       string               `json:"path"`
-	Mode       string               `json:"mode"` // delete, set, move, copy, prepend, append, trim_prefix, trim_suffix, ensure_prefix, ensure_suffix, trim_space, to_lower, to_upper, replace, regex_replace, return_error, prune_objects, set_header, delete_header, copy_header, move_header, pass_headers, sync_fields
+	Mode       string               `json:"mode"` // delete, set, move, copy, prepend, append, trim_prefix, trim_suffix, ensure_prefix, ensure_suffix, trim_space, to_lower, to_upper, replace, regex_replace, return_error, prune_objects, set_header, delete_header, copy_header, move_header, pass_headers, sync_fields, set_request_body
 	Value      interface{}          `json:"value"`
 	KeepOrigin bool                 `json:"keep_origin"`
 	From       string               `json:"from,omitempty"`
@@ -192,8 +192,14 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	syncRuntimeHeaderOverrideFromContext(info, overrideCtx)
 	if info != nil {
+		if options, ok := overrideCtx[paramOverrideContextRequestBody].(*RequestBodyOverrideOptions); ok {
+			if !info.SupportsRequestBodyOverride {
+				return nil, fmt.Errorf("set_request_body is not supported by this adaptor")
+			}
+			info.RequestBodyOverride = options
+		}
+		syncRuntimeHeaderOverrideFromContext(info, overrideCtx)
 		if recorder != nil {
 			info.ParamOverrideAudit = recorder.lines
 		} else {
@@ -212,7 +218,7 @@ func shouldEnableParamOverrideAudit(paramOverride map[string]interface{}) bool {
 	}
 	if operations, ok := tryParseOperations(paramOverride); ok {
 		for _, operation := range operations {
-			if shouldAuditParamPath(strings.TrimSpace(operation.Path)) ||
+			if operation.Mode == "set_request_body" || shouldAuditParamPath(strings.TrimSpace(operation.Path)) ||
 				shouldAuditParamPath(strings.TrimSpace(operation.From)) ||
 				shouldAuditParamPath(strings.TrimSpace(operation.To)) {
 				return true
@@ -272,7 +278,7 @@ func shouldAuditParamPath(path string) bool {
 }
 
 func shouldAuditOperation(mode, path, from, to string) bool {
-	if common.DebugEnabled {
+	if common.DebugEnabled || mode == "set_request_body" {
 		return true
 	}
 	for _, candidate := range []string{path, from, to} {
@@ -374,6 +380,8 @@ func buildParamOverrideAuditLine(mode, path, from, to string, value interface{})
 		return fmt.Sprintf("sync_fields %s -> %s", from, to)
 	case "return_error":
 		return fmt.Sprintf("return_error %s", formatParamOverrideAuditValue(value))
+	case "set_request_body":
+		return fmt.Sprintf("set_request_body %s", formatParamOverrideAuditValue(value))
 	default:
 		if path == "" {
 			return mode
@@ -893,6 +901,14 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 					break
 				}
 			}
+		case "set_request_body":
+			options, parseErr := parseRequestBodyOverrideOptions(op.Value)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			context[paramOverrideContextRequestBody] = options
+			auditRecorder.recordOperation("set_request_body", "", "", "", options)
+			contextJSON, err = marshalContextJSON(context)
 		case "set_header":
 			err = setHeaderOverrideInContext(context, op.Path, op.Value, op.KeepOrigin)
 			if err == nil {

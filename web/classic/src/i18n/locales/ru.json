@@ -1,5 +1,8 @@
 {
   "translation": {
+    "设置请求体格式": "Задать формат тела запроса",
+    "为支持此功能的任务适配器配置请求体格式和标量字段类型": "Настроить кодирование тела запроса и типы скалярных полей для поддерживаемых адаптеров задач",
+    "第 {{line}} 条请求体配置无效": "Некорректная конфигурация тела запроса в правиле {{line}}",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_one": " + Web-поиск {{count}} раз / 1K раз * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_few": " + Web-поиск {{count}} раза / 1K раз * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_many": " + Web-поиск {{count}} раз / 1K раз * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",

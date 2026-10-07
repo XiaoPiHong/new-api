@@ -85,6 +85,12 @@ type TaskPreBuildParamOverrideAdaptor interface {
 	ApplyParamOverrideBeforeBuildRequest() bool
 }
 
+// TaskRequestBodyOverrideAdaptor opts into channel-configured request encoding.
+// Implementations use relaycommon.BuildRequestBodyOverride and its Content-Type.
+type TaskRequestBodyOverrideAdaptor interface {
+	SupportsRequestBodyOverride() bool
+}
+
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }

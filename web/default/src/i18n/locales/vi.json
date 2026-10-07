@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Set Request Body Format": "Đặt định dạng nội dung yêu cầu",
+    "Configure request body encoding and scalar field types for supported task adaptors": "Cấu hình mã hóa nội dung yêu cầu và kiểu trường vô hướng cho bộ điều hợp tác vụ hỗ trợ",
+    "Rule {{line}} request body configuration is invalid": "Cấu hình nội dung yêu cầu của quy tắc {{line}} không hợp lệ",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

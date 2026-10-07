@@ -31,6 +31,12 @@ type TaskSubmitResult struct {
 }
 
 const taskParamOverridePreAppliedKey = "task_param_override_pre_applied"
+const taskOriginalRequestBodyKey = "task_original_request_body"
+
+type taskOriginalRequestBody struct {
+	data        []byte
+	contentType string
+}
 
 // ResolveOriginTask 处理基于已有任务的提交（remix / continuation）：
 // 查找原始任务、从中提取模型名称、将渠道锁定到原始任务的渠道
@@ -145,6 +151,10 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 // 控制器负责 defer Refund 和成功后 Settle。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
 	info.InitChannelMeta(c)
+	c.Set(taskParamOverridePreAppliedKey, false)
+	if err := restoreTaskRequestBody(c); err != nil {
+		return nil, service.TaskErrorWrapper(err, "restore_request_body_failed", http.StatusInternalServerError)
+	}
 
 	// 1. 确定 platform → 创建适配器 → 验证请求
 	platform := constant.TaskPlatform(c.GetString("platform"))
@@ -156,6 +166,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("invalid api platform: %s", platform), "invalid_api_platform", http.StatusBadRequest)
 	}
 	adaptor.Init(info)
+	if bodyOverrideAdaptor, ok := adaptor.(channel.TaskRequestBodyOverrideAdaptor); ok {
+		info.SupportsRequestBodyOverride = bodyOverrideAdaptor.SupportsRequestBodyOverride()
+	}
 	if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
 		return nil, taskErr
 	}
@@ -293,6 +306,17 @@ func applyTaskParamOverrideBeforeBuild(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return service.TaskErrorWrapper(err, "param_override_failed", http.StatusBadRequest)
 	}
+	if info.RequestBodyOverride != nil {
+		if _, exists := c.Get(taskOriginalRequestBodyKey); !exists {
+			c.Set(taskOriginalRequestBodyKey, taskOriginalRequestBody{
+				data:        bytes.Clone(bodyBytes),
+				contentType: c.GetHeader("Content-Type"),
+			})
+		}
+		// Format operations must not run again even when JSON bytes are unchanged.
+		// Adaptors without a format override retain their existing post-build rules.
+		c.Set(taskParamOverridePreAppliedKey, true)
+	}
 	if bytes.Equal(jsonData, bodyBytes) {
 		return nil
 	}
@@ -304,6 +328,24 @@ func applyTaskParamOverrideBeforeBuild(c *gin.Context, info *relaycommon.RelayIn
 	if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
 		return taskErr
 	}
+	return nil
+}
+
+// After a configured format override, retries start from the client JSON and
+// Content-Type so the override cannot leak fields or a multipart boundary.
+func restoreTaskRequestBody(c *gin.Context) error {
+	raw, exists := c.Get(taskOriginalRequestBodyKey)
+	if !exists {
+		return nil
+	}
+	original, ok := raw.(taskOriginalRequestBody)
+	if !ok {
+		return fmt.Errorf("invalid original task request body")
+	}
+	if err := replaceTaskRequestBody(c, original.data); err != nil {
+		return err
+	}
+	c.Request.Header.Set("Content-Type", original.contentType)
 	return nil
 }
 

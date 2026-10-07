@@ -156,6 +156,8 @@ type RelayInfo struct {
 	LastError                             *types.NewAPIError
 	RuntimeHeadersOverride                map[string]interface{}
 	UseRuntimeHeadersOverride             bool
+	RequestBodyOverride                   *RequestBodyOverrideOptions
+	SupportsRequestBodyOverride           bool
 	ParamOverrideAudit                    []string
 
 	// UpstreamRequestBodySize is the byte size of the marshaled upstream request
@@ -237,6 +239,8 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	}
 
 	info.ChannelMeta = channelMeta
+	info.RequestBodyOverride = nil
+	info.SupportsRequestBodyOverride = false
 
 	// reset some fields based on channel meta
 	// 重置某些字段，例如模型名称等

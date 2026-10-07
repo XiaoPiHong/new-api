@@ -72,6 +72,10 @@ func (a *TaskAdaptor) ApplyParamOverrideBeforeBuildRequest() bool {
 	return true
 }
 
+func (a *TaskAdaptor) SupportsRequestBodyOverride() bool {
+	return true
+}
+
 func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
 	return fmt.Sprintf("%s%s", a.baseURL, VideoEndpoint), nil
 }
@@ -101,10 +105,20 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, err
 	}
 
+	upstreamModel := firstNonEmpty(info.UpstreamModelName, taskReq.Model, stringFromMap(bodyMap, "model"))
+	if info.RequestBodyOverride != nil {
+		body, contentType, err := relaycommon.BuildRequestBodyOverride(cachedBody, upstreamModel, info.RequestBodyOverride)
+		if err != nil {
+			return nil, err
+		}
+		c.Request.Header.Set("Content-Type", contentType)
+		return body, nil
+	}
+
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	writeFormField(writer, "model", firstNonEmpty(info.UpstreamModelName, taskReq.Model, stringFromMap(bodyMap, "model")))
+	writeFormField(writer, "model", upstreamModel)
 	writeFormField(writer, "prompt", firstNonEmpty(taskReq.Prompt, stringFromMap(bodyMap, "prompt")))
 	writeFormField(writer, "size", resolveSize(taskReq, bodyMap))
 	writeFormField(writer, "seconds", resolveSeconds(taskReq, bodyMap))

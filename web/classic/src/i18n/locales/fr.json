@@ -1,5 +1,8 @@
 {
   "translation": {
+    "设置请求体格式": "Définir le format du corps de requête",
+    "为支持此功能的任务适配器配置请求体格式和标量字段类型": "Configurer l’encodage du corps de requête et les types de champs scalaires pour les adaptateurs de tâches compatibles",
+    "第 {{line}} 条请求体配置无效": "La configuration du corps de requête de la règle {{line}} est invalide",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_one": " + Recherche Web {{count}} fois / 1K fois * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_many": " + Recherche Web {{count}} fois / 1K fois * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_other": " + Recherche Web {{count}} fois / 1K fois * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",

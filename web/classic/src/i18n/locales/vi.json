@@ -1,5 +1,8 @@
 {
   "translation": {
+    "设置请求体格式": "Đặt định dạng nội dung yêu cầu",
+    "为支持此功能的任务适配器配置请求体格式和标量字段类型": "Cấu hình mã hóa nội dung yêu cầu và kiểu trường vô hướng cho bộ điều hợp tác vụ hỗ trợ",
+    "第 {{line}} 条请求体配置无效": "Cấu hình nội dung yêu cầu của quy tắc {{line}} không hợp lệ",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_one": " + Tìm kiếm Web {{count}} lần / 1K lần * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_other": " + Tìm kiếm Web {{count}} lần / 1K lần * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",
     " + 图片生成调用 {{symbol}}{{price}} / 1次 * {{ratioType}} {{ratio}}": " + Gọi tạo hình ảnh {{symbol}}{{price}} / 1 lần * {{ratioType}} {{ratio}}",

@@ -1,5 +1,8 @@
 {
   "translation": {
+    "设置请求体格式": "リクエスト本文の形式を設定",
+    "为支持此功能的任务适配器配置请求体格式和标量字段类型": "対応するタスクアダプターのリクエスト本文のエンコードとスカラー項目の型を設定",
+    "第 {{line}} 条请求体配置无效": "ルール {{line}} のリクエスト本文設定が無効です",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_one": " + Web検索 {{count}}回 / 1K回 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_one",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_other": " + Web検索 {{count}}回 / 1K回 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_other",
     " + 图片生成调用 {{symbol}}{{price}} / 1次 * {{ratioType}} {{ratio}}": " + 画像生成APIコール {{symbol}}{{price}} / 1回 * {{ratioType}} {{ratio}}",

@@ -307,6 +307,8 @@ export const STATIC_I18N_KEYS = [
   // Header manipulation
   'Pass Headers',
   'Set Header',
+  'Set Request Body Format',
+  'Configure request body encoding and scalar field types for supported task adaptors',
   'Copy Header',
   'Delete Header',
   'Move Header',

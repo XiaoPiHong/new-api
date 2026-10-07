@@ -1,5 +1,8 @@
 {
   "translation": {
+    "设置请求体格式": "设置请求体格式",
+    "为支持此功能的任务适配器配置请求体格式和标量字段类型": "为支持此功能的任务适配器配置请求体格式和标量字段类型",
+    "第 {{line}} 条请求体配置无效": "第 {{line}} 条请求体配置无效",
     " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_other": " + Web搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",
     " + 图片生成调用 {{symbol}}{{price}} / 1次 * {{ratioType}} {{ratio}}": " + 图片生成调用 {{symbol}}{{price}} / 1次 * {{ratioType}} {{ratio}}",
     " + 文件搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}_other": " + 文件搜索 {{count}}次 / 1K 次 * {{symbol}}{{price}} * {{ratioType}} {{ratio}}",

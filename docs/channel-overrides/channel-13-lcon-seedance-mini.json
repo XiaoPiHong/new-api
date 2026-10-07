@@ -1,0 +1,238 @@
+{
+  "operations": [
+    {
+      "mode": "set",
+      "path": "size",
+      "value": "16:9",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-veo_3_1-fast"
+        }
+      ],
+      "logic": "OR"
+    },
+    {
+      "mode": "set",
+      "path": "size",
+      "value": "16:9",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-grok-video-3-pro"
+        }
+      ],
+      "logic": "OR"
+    },
+    {
+      "mode": "set",
+      "path": "seconds",
+      "value": "10",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-grok-video-3-pro"
+        }
+      ],
+      "logic": "OR"
+    },
+    {
+      "mode": "set",
+      "path": "seconds",
+      "value": "6",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-grok-imagine-video-1.5-preview"
+        }
+      ],
+      "logic": "OR"
+    },
+    {
+      "mode": "set_request_body",
+      "value": {
+        "format": "json",
+        "field_types": {
+          "duration": "integer"
+        }
+      },
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "move",
+      "from": "aspect_ratio",
+      "to": "ratio",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        },
+        {
+          "path": "aspect_ratio",
+          "mode": "prefix",
+          "value": ""
+        }
+      ],
+      "logic": "AND"
+    },
+    {
+      "mode": "move",
+      "from": "seconds",
+      "to": "duration",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        },
+        {
+          "path": "seconds",
+          "mode": "prefix",
+          "value": ""
+        }
+      ],
+      "logic": "AND"
+    },
+    {
+      "mode": "set",
+      "path": "duration",
+      "value": 5,
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "set",
+      "path": "resolution",
+      "value": "720p",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "copy",
+      "from": "images.0",
+      "to": "images.1",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        },
+        {
+          "path": "images.#",
+          "mode": "gte",
+          "value": 1
+        }
+      ],
+      "logic": "AND"
+    },
+    {
+      "mode": "delete",
+      "path": "size",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "delete",
+      "path": "aspectRatio",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "delete",
+      "path": "image",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "delete",
+      "path": "input_reference",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "delete",
+      "path": "reference_images",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "delete",
+      "path": "fps",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "delete",
+      "path": "n",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    },
+    {
+      "mode": "delete",
+      "path": "response_format",
+      "conditions": [
+        {
+          "path": "original_model",
+          "mode": "full",
+          "value": "lcon-seedance-2-0-mini-720p-i2v"
+        }
+      ]
+    }
+  ]
+}

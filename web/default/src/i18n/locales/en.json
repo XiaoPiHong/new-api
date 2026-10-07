@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Set Request Body Format": "Set Request Body Format",
+    "Configure request body encoding and scalar field types for supported task adaptors": "Configure request body encoding and scalar field types for supported task adaptors",
+    "Rule {{line}} request body configuration is invalid": "Rule {{line}} request body configuration is invalid",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

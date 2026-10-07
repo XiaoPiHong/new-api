@@ -121,6 +121,7 @@ const OPERATION_MODE_OPTIONS = [
   { label: 'Prune Object Items', value: 'prune_objects' },
   { label: 'Pass Through Headers', value: 'pass_headers' },
   { label: 'Sync Fields', value: 'sync_fields' },
+  { label: 'Set Request Body Format', value: 'set_request_body' },
   { label: 'Set Request Header', value: 'set_header' },
   { label: 'Delete Request Header', value: 'delete_header' },
   { label: 'Copy Request Header', value: 'copy_header' },
@@ -184,6 +185,7 @@ const MODE_META: Record<
   prune_objects: { pathOptional: true, value: true },
   pass_headers: { value: true, keepOrigin: true },
   sync_fields: { from: true, to: true },
+  set_request_body: { value: true },
   set_header: { path: true, value: true, keepOrigin: true },
   delete_header: { path: true },
   copy_header: { from: true, to: true, keepOrigin: true, pathAlias: true },
@@ -199,6 +201,7 @@ const VALUE_REQUIRED_MODES = new Set([
   'return_error',
   'prune_objects',
   'pass_headers',
+  'set_request_body',
 ])
 
 const FROM_REQUIRED_MODES = new Set([
@@ -239,6 +242,8 @@ const MODE_DESCRIPTIONS: Record<string, string> = {
   prune_objects: 'Prune object items by conditions',
   pass_headers: 'Pass specified request headers to upstream',
   sync_fields: 'Auto-fill when one field exists and another is missing',
+  set_request_body:
+    'Configure request body encoding and scalar field types for supported task adaptors',
   set_header:
     'Set runtime request header: override entire value, or manipulate comma-separated tokens',
   delete_header: 'Delete a runtime request header',
@@ -629,6 +634,8 @@ const getModeValueLabel = (mode: string): string => {
 }
 
 const getModeValuePlaceholder = (mode: string): string => {
+  if (mode === 'set_request_body')
+    return '{"format":"json","field_types":{"duration":"integer"}}'
   if (mode === 'set_header') return 'Bearer sk-xxx'
   if (mode === 'pass_headers') return 'Authorization, X-Request-Id'
   if (
@@ -921,6 +928,25 @@ const validateOperations = (
     }
     if (VALUE_REQUIRED_MODES.has(mode) && op.value_text.trim() === '')
       return t('Rule {{line}} is missing value', { line })
+
+    if (mode === 'set_request_body') {
+      try {
+        const parsed: unknown = JSON.parse(op.value_text)
+        if (
+          !parsed ||
+          typeof parsed !== 'object' ||
+          Array.isArray(parsed) ||
+          !['json', 'multipart'].includes(
+            String((parsed as Record<string, unknown>).format)
+              .trim()
+              .toLowerCase()
+          )
+        )
+          return t('Rule {{line}} request body configuration is invalid', { line })
+      } catch {
+        return t('Rule {{line}} request body configuration is invalid', { line })
+      }
+    }
 
     if (mode === 'return_error') {
       const raw = op.value_text.trim()

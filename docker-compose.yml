@@ -34,6 +34,10 @@ services:
       #      - SQL_DSN=root:xiaopihong284250@tcp(mysql:3306)/new-api  # Point to the mysql service, uncomment if using MySQL
       - REDIS_CONN_STRING=redis://:xiaopihong284250@redis:6379 # ⚠️ IMPORTANT: Change the password in production!
       - TZ=Asia/Shanghai
+      # 同一客户端 IP 在 20 分钟内共享 20 次敏感操作额度（登录、注册等）。
+      - CRITICAL_RATE_LIMIT_ENABLE=true
+      - CRITICAL_RATE_LIMIT=20
+      - CRITICAL_RATE_LIMIT_DURATION=1200
       - ERROR_LOG_ENABLED=true # 是否启用错误日志记录 (Whether to enable error log recording)
       # 工作流整单预占要求余额、Token 和预占单在同一数据库事务中提交。
       - BATCH_UPDATE_ENABLED=false

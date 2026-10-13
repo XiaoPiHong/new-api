@@ -84,8 +84,6 @@ services:
       - pg_data:/var/lib/postgresql/data
     networks:
       - new-api-network
-    ports:
-      - "5433:5432" # Expose PostgreSQL to host for tools like Navicat
 
 #  mysql:
 #    image: mysql:8.2

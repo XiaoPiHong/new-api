@@ -55,20 +55,29 @@ const (
 	ChannelTypeSora           = 55
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
-	ChannelTypeGrokVideo      = 58
-	ChannelTypeRunningHub     = 59
-	ChannelTypeLconVideo      = 60
-	ChannelTypeJunliai        = 61
-	ChannelTypeKieVideo       = 62
+	// Preserve persisted custom channel IDs when merging upstream additions.
+	ChannelTypeGrokVideo  = 58
+	ChannelTypeRunningHub = 59
+	ChannelTypeLconVideo  = 60
+	ChannelTypeJunliai    = 61
+	ChannelTypeKieVideo   = 62
 	// GeminiImage uses the native Gemini generateContent image protocol.
 	ChannelTypeGeminiImage = 63
 	// LeonardoAdmin is the dedicated adapter for the standalone Leonardo
 	// Admin service in leonardo-admin-src.
-	ChannelTypeLeonardoAdmin = 64
-	ChannelTypeDummy          // this one is only for count, do not add any channel after this
+	ChannelTypeLeonardoAdmin  = 64
+	ChannelTypeAdvancedCustom = 65
+	ChannelTypeSub2API        = 66
+	ChannelTypeNewAPI         = 67
+	ChannelTypeTaskPlugin     = 68
+	ChannelTypeVLLM           = 69
+	ChannelTypeSGLang         = 70
+	ChannelTypeDummy          = 71 // this one is only for count, do not add any channel after this
 
 )
 
+// ChannelBaseURLs 保存各渠道类型的内置默认 Base URL。
+// 非空值会通过 /api/channel/default_base_urls 下发到前端，作为渠道表单的 API 地址占位提示。
 var ChannelBaseURLs = []string{
 	"",                                    // 0
 	"https://api.openai.com",              // 1
@@ -135,6 +144,19 @@ var ChannelBaseURLs = []string{
 	"https://api.kie.ai",                        //62
 	"",                                          //63 GeminiImage
 	"",                                          //64 LeonardoAdmin
+	"",                                          //65 Advanced Custom
+	"",                                          //66 Sub2API
+	"",                                          //67 New API
+	"",                                          //68 Task Plugin
+	"",                                          //69 vLLM
+	"",                                          //70 SGLang
+}
+
+func GetChannelBaseURL(channelType int) string {
+	if channelType < 0 || channelType >= len(ChannelBaseURLs) {
+		return ""
+	}
+	return ChannelBaseURLs[channelType]
 }
 
 var ChannelTypeNames = map[int]string{
@@ -188,10 +210,10 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeJimeng:         "Jimeng",
 	ChannelTypeVidu:           "Vidu",
 	ChannelTypeSubmodel:       "Submodel",
-	ChannelTypeDoubaoVideo:    "DoubaoVideo",
+	ChannelTypeDoubaoVideo:    "Doubao",
 	ChannelTypeSora:           "Sora",
 	ChannelTypeReplicate:      "Replicate",
-	ChannelTypeCodex:          "Codex",
+	ChannelTypeCodex:          "ChatGPT Subscription (Codex)",
 	ChannelTypeGrokVideo:      "GrokVideo",
 	ChannelTypeRunningHub:     "RunningHub",
 	ChannelTypeLconVideo:      "LconVideo",
@@ -199,6 +221,12 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeKieVideo:       "KieVideo",
 	ChannelTypeGeminiImage:    "Gemini Image",
 	ChannelTypeLeonardoAdmin:  "Leonardo Admin",
+	ChannelTypeAdvancedCustom: "Advanced Custom",
+	ChannelTypeSub2API:        "Sub2API",
+	ChannelTypeNewAPI:         "New API",
+	ChannelTypeTaskPlugin:     "Task Plugin",
+	ChannelTypeVLLM:           "vLLM",
+	ChannelTypeSGLang:         "SGLang",
 }
 
 func GetChannelTypeName(channelType int) string {
@@ -230,4 +258,14 @@ var ChannelSpecialBases = map[string]ChannelSpecialBase{
 		ClaudeBaseURL: "https://ark.cn-beijing.volces.com/api/coding",
 		OpenAIBaseURL: "https://ark.cn-beijing.volces.com/api/coding/v3",
 	},
+}
+
+// IsAdvancedCustomChannel includes named channels backed by route presets.
+func IsAdvancedCustomChannel(channelType int) bool {
+	switch channelType {
+	case ChannelTypeAdvancedCustom, ChannelTypeVLLM, ChannelTypeSGLang:
+		return true
+	default:
+		return false
+	}
 }

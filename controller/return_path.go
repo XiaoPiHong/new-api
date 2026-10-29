@@ -5,14 +5,13 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 func paymentReturnPath(suffix string) string {
 	base := strings.TrimRight(system_setting.ServerAddress, "/")
-	return base + common.ThemeAwarePath(suffix)
+	return base + suffix
 }
 
 // topUpPaymentReturnURL 生成充值完成后的浏览器返回地址。
@@ -20,7 +19,7 @@ func paymentReturnPath(suffix string) string {
 func topUpPaymentReturnURL(tradeNo string) (*url.URL, error) {
 	returnAddress := strings.TrimSpace(operation_setting.GetPaymentSetting().TopUpReturnURL)
 	if returnAddress == "" {
-		returnAddress = paymentReturnPath("/console/log")
+		returnAddress = paymentReturnPath("/usage-logs")
 	}
 
 	returnURL, err := url.Parse(returnAddress)

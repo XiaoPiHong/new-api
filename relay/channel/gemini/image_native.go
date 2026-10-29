@@ -17,11 +17,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -61,9 +61,9 @@ func convertGeminiGenerateContentImageRequest(
 		return nil, err
 	}
 
-	candidateCount := int(lo.FromPtrOr(request.N, uint(1)))
-	if candidateCount <= 0 {
-		candidateCount = 1
+	candidateCount, err := request.ImageCount(false)
+	if err != nil {
+		return nil, err
 	}
 
 	return &dto.GeminiChatRequest{
@@ -294,6 +294,7 @@ func GeminiNativeImageHandler(
 	if len(data) == 0 {
 		return nil, types.NewOpenAIError(errors.New("no images generated"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	info.UpdateImageCount(int64(len(data)))
 
 	openAIResponse := dto.ImageResponse{
 		Created: common.GetTimestamp(),
@@ -308,7 +309,7 @@ func GeminiNativeImageHandler(
 	c.Writer.WriteHeader(resp.StatusCode)
 	_, _ = c.Writer.Write(jsonResponse)
 
-	usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
+	usage := buildUsageFromGeminiMetadata(&geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
 	if usage.TotalTokens <= 0 {
 		// Gemini may omit usage metadata for image responses. Keep billing
 		// non-zero while preserving any prompt estimate when available.

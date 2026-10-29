@@ -7,7 +7,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const (
@@ -43,19 +42,19 @@ var (
 // WorkflowQuotaReservation 是整个工作流的额度预占主单。
 // 预占时直接从钱包和有限额 Token 的可用额度中扣除，任务结束后再统一释放未消费部分。
 type WorkflowQuotaReservation struct {
-	Id              int64  `json:"id" gorm:"primaryKey"`
-	PublicId        string `json:"reservation_id" gorm:"type:varchar(64);uniqueIndex"`
-	ReservationKey  string `json:"reservation_key" gorm:"type:varchar(128);uniqueIndex:idx_workflow_quota_key_owner"`
-	UserId          int    `json:"user_id" gorm:"uniqueIndex:idx_workflow_quota_key_owner;index"`
-	TokenId         int    `json:"token_id" gorm:"uniqueIndex:idx_workflow_quota_key_owner;index"`
-	Status          string `json:"status" gorm:"type:varchar(24);index"`
-	ReservedQuota   int    `json:"reserved_quota"`
-	ConsumedQuota   int    `json:"consumed_quota"`
-	ReleasedQuota   int    `json:"released_quota"`
-	ExpiresAt       int64  `json:"expires_at" gorm:"index"`
-	CreatedAt       int64  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt       int64  `json:"updated_at" gorm:"autoUpdateTime"`
-	Items           []WorkflowQuotaReservationItem `json:"items" gorm:"foreignKey:ReservationId"`
+	Id             int64                          `json:"id" gorm:"primaryKey"`
+	PublicId       string                         `json:"reservation_id" gorm:"type:varchar(64);uniqueIndex"`
+	ReservationKey string                         `json:"reservation_key" gorm:"type:varchar(128);uniqueIndex:idx_workflow_quota_key_owner"`
+	UserId         int                            `json:"user_id" gorm:"uniqueIndex:idx_workflow_quota_key_owner;index"`
+	TokenId        int                            `json:"token_id" gorm:"uniqueIndex:idx_workflow_quota_key_owner;index"`
+	Status         string                         `json:"status" gorm:"type:varchar(24);index"`
+	ReservedQuota  int                            `json:"reserved_quota"`
+	ConsumedQuota  int                            `json:"consumed_quota"`
+	ReleasedQuota  int                            `json:"released_quota"`
+	ExpiresAt      int64                          `json:"expires_at" gorm:"index"`
+	CreatedAt      int64                          `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt      int64                          `json:"updated_at" gorm:"autoUpdateTime"`
+	Items          []WorkflowQuotaReservationItem `json:"items" gorm:"foreignKey:ReservationId"`
 }
 
 // WorkflowQuotaReservationItem 将预占额度绑定到具体工作流节点。
@@ -63,16 +62,16 @@ type WorkflowQuotaReservation struct {
 type WorkflowQuotaReservationItem struct {
 	Id               int64  `json:"id" gorm:"primaryKey"`
 	ReservationId    int64  `json:"-" gorm:"uniqueIndex:idx_workflow_quota_item"`
-	ItemKey           string `json:"item_key" gorm:"type:varchar(128);uniqueIndex:idx_workflow_quota_item"`
-	Adapter           string `json:"adapter" gorm:"type:varchar(32)"`
-	ModelName         string `json:"model" gorm:"type:varchar(191)"`
-	QuotedQuota       int    `json:"quoted_quota"`
-	PreConsumedQuota  int    `json:"pre_consumed_quota"`
-	ConsumedQuota     int    `json:"consumed_quota"`
-	Status            string `json:"status" gorm:"type:varchar(24);index"`
-	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(128)"`
-	CreatedAt         int64  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt         int64  `json:"updated_at" gorm:"autoUpdateTime"`
+	ItemKey          string `json:"item_key" gorm:"type:varchar(128);uniqueIndex:idx_workflow_quota_item"`
+	Adapter          string `json:"adapter" gorm:"type:varchar(32)"`
+	ModelName        string `json:"model" gorm:"type:varchar(191)"`
+	QuotedQuota      int    `json:"quoted_quota"`
+	PreConsumedQuota int    `json:"pre_consumed_quota"`
+	ConsumedQuota    int    `json:"consumed_quota"`
+	Status           string `json:"status" gorm:"type:varchar(24);index"`
+	RequestId        string `json:"request_id,omitempty" gorm:"type:varchar(128)"`
+	CreatedAt        int64  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt        int64  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // WorkflowQuotaReservationItemInput 是 controller 完成报价后的可信节点额度输入。
@@ -92,6 +91,40 @@ type ReserveWorkflowQuotaRequest struct {
 	Items          []WorkflowQuotaReservationItemInput
 }
 
+// GetWorkflowQuotaItemQuote reads the original node quote after checking the
+// reservation's owner. Settlement/refund can change consumption, never this
+// immutable quote. The lookup does not lock rows or adjust any accounting.
+func GetWorkflowQuotaItemQuote(publicId string, itemKey string, userId int, tokenId int) (*WorkflowQuotaReservationItem, error) {
+	if DB == nil {
+		return nil, errors.New("workflow quota database is unavailable")
+	}
+	publicId = strings.TrimSpace(publicId)
+	itemKey = strings.TrimSpace(itemKey)
+	if publicId == "" || userId <= 0 || tokenId <= 0 {
+		return nil, ErrWorkflowQuotaReservationNotFound
+	}
+	if itemKey == "" {
+		return nil, ErrWorkflowQuotaItemNotFound
+	}
+	var reservation WorkflowQuotaReservation
+	if err := DB.Select("id").Where(
+		"public_id = ? AND user_id = ? AND token_id = ?", publicId, userId, tokenId,
+	).First(&reservation).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrWorkflowQuotaReservationNotFound
+		}
+		return nil, err
+	}
+	var item WorkflowQuotaReservationItem
+	if err := DB.Where("reservation_id = ? AND item_key = ?", reservation.Id, itemKey).First(&item).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrWorkflowQuotaItemNotFound
+		}
+		return nil, err
+	}
+	return &item, nil
+}
+
 // ReserveWorkflowQuota 原子完成用户钱包、Token 额度扣减和预占单写入。
 // BATCH_UPDATE_ENABLED 会让数据库额度短暂落后于缓存，无法满足跨进程原子预占，因此明确拒绝。
 func ReserveWorkflowQuota(input ReserveWorkflowQuotaRequest) (*WorkflowQuotaReservation, bool, error) {
@@ -109,13 +142,16 @@ func ReserveWorkflowQuota(input ReserveWorkflowQuotaRequest) (*WorkflowQuotaRese
 	// node.id 是后续核销主键，创建时必须唯一；总额度只能由可信报价明细汇总。
 	for _, item := range input.Items {
 		itemKey := strings.TrimSpace(item.ItemKey)
-		if itemKey == "" || item.QuotedQuota < 0 {
+		if itemKey == "" || item.QuotedQuota < 0 || item.QuotedQuota > common.MaxQuota {
 			return nil, false, ErrWorkflowQuotaReservationConflict
 		}
 		if _, exists := seenItems[itemKey]; exists {
 			return nil, false, ErrWorkflowQuotaReservationConflict
 		}
 		seenItems[itemKey] = struct{}{}
+		if total > common.MaxWalletQuota-item.QuotedQuota {
+			return nil, false, ErrWorkflowQuotaReservationConflict
+		}
 		total += item.QuotedQuota
 	}
 
@@ -167,7 +203,7 @@ func ReserveWorkflowQuota(input ReserveWorkflowQuotaRequest) (*WorkflowQuotaRese
 		if total > 0 && !token.UnlimitedQuota {
 			tokenUpdate := tx.Model(&Token{}).
 				Where("id = ? AND user_id = ? AND remain_quota >= ?", input.TokenId, input.UserId, total).
-				Updates(map[string]interface{}{
+				Updates(map[string]any{
 					"remain_quota": gorm.Expr("remain_quota - ?", total),
 					"used_quota":   gorm.Expr("used_quota + ?", total),
 				})
@@ -197,11 +233,11 @@ func ReserveWorkflowQuota(input ReserveWorkflowQuotaRequest) (*WorkflowQuotaRese
 		for _, item := range input.Items {
 			items = append(items, WorkflowQuotaReservationItem{
 				ReservationId: result.Id,
-				ItemKey:        strings.TrimSpace(item.ItemKey),
-				Adapter:        strings.TrimSpace(item.Adapter),
-				ModelName:      strings.TrimSpace(item.ModelName),
-				QuotedQuota:    item.QuotedQuota,
-				Status:         WorkflowQuotaItemStatusReserved,
+				ItemKey:       strings.TrimSpace(item.ItemKey),
+				Adapter:       strings.TrimSpace(item.Adapter),
+				ModelName:     strings.TrimSpace(item.ModelName),
+				QuotedQuota:   item.QuotedQuota,
+				Status:        WorkflowQuotaItemStatusReserved,
 			})
 		}
 		if err := tx.Create(&items).Error; err != nil {
@@ -270,7 +306,7 @@ func ClaimWorkflowQuotaItem(publicId string, itemKey string, userId int, tokenId
 		}
 
 		var item WorkflowQuotaReservationItem
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+		if err := lockForUpdate(tx).Where(
 			"reservation_id = ? AND item_key = ?",
 			reservation.Id,
 			strings.TrimSpace(itemKey),
@@ -286,10 +322,10 @@ func ClaimWorkflowQuotaItem(publicId string, itemKey string, userId int, tokenId
 			if quota > item.QuotedQuota {
 				return fmt.Errorf("%w: quoted=%d required=%d", ErrWorkflowQuotaItemExceeded, item.QuotedQuota, quota)
 			}
-			if err := tx.Model(&item).Updates(map[string]interface{}{
+			if err := tx.Model(&item).Updates(map[string]any{
 				"status":             WorkflowQuotaItemStatusActive,
 				"pre_consumed_quota": quota,
-				"request_id":          strings.TrimSpace(requestId),
+				"request_id":         strings.TrimSpace(requestId),
 			}).Error; err != nil {
 				return err
 			}
@@ -329,7 +365,7 @@ func AdjustSettledWorkflowQuotaItem(publicId string, itemKey string, userId int,
 		}
 
 		var item WorkflowQuotaReservationItem
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+		if err := lockForUpdate(tx).Where(
 			"reservation_id = ? AND item_key = ?",
 			reservation.Id,
 			strings.TrimSpace(itemKey),
@@ -356,7 +392,7 @@ func AdjustSettledWorkflowQuotaItem(publicId string, itemKey string, userId int,
 		if actualQuota == 0 {
 			itemStatus = WorkflowQuotaItemStatusRefunded
 		}
-		if err := tx.Model(&item).Updates(map[string]interface{}{
+		if err := tx.Model(&item).Updates(map[string]any{
 			"status":         itemStatus,
 			"consumed_quota": actualQuota,
 		}).Error; err != nil {
@@ -383,7 +419,7 @@ func SettleWorkflowQuotaItem(publicId string, itemKey string, userId int, tokenI
 		}
 
 		var item WorkflowQuotaReservationItem
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+		if err := lockForUpdate(tx).Where(
 			"reservation_id = ? AND item_key = ?",
 			reservation.Id,
 			strings.TrimSpace(itemKey),
@@ -411,7 +447,7 @@ func SettleWorkflowQuotaItem(publicId string, itemKey string, userId int, tokenI
 		if newConsumed > reservation.ReservedQuota {
 			return ErrWorkflowQuotaItemExceeded
 		}
-		if err := tx.Model(&item).Updates(map[string]interface{}{
+		if err := tx.Model(&item).Updates(map[string]any{
 			"status":         WorkflowQuotaItemStatusSettled,
 			"consumed_quota": actualQuota,
 		}).Error; err != nil {
@@ -432,7 +468,7 @@ func RefundWorkflowQuotaItem(publicId string, itemKey string, userId int, tokenI
 			return err
 		}
 		var item WorkflowQuotaReservationItem
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+		if err := lockForUpdate(tx).Where(
 			"reservation_id = ? AND item_key = ?",
 			reservation.Id,
 			strings.TrimSpace(itemKey),
@@ -441,10 +477,10 @@ func RefundWorkflowQuotaItem(publicId string, itemKey string, userId int, tokenI
 		}
 		switch item.Status {
 		case WorkflowQuotaItemStatusActive:
-			return tx.Model(&item).Updates(map[string]interface{}{
+			return tx.Model(&item).Updates(map[string]any{
 				"status":             WorkflowQuotaItemStatusReserved,
 				"pre_consumed_quota": 0,
-				"request_id":          "",
+				"request_id":         "",
 			}).Error
 		case WorkflowQuotaItemStatusReserved, WorkflowQuotaItemStatusReleased, WorkflowQuotaItemStatusRefunded:
 			return nil
@@ -496,21 +532,11 @@ func ReleaseWorkflowQuotaReservation(
 			return ErrWorkflowQuotaReservationConflict
 		}
 		if refundedQuota > 0 {
-			if err := tx.Model(&User{}).Where("id = ?", userId).
-				Update("quota", gorm.Expr("quota + ?", refundedQuota)).Error; err != nil {
+			if err := creditTopUpQuota(tx, userId, refundedQuota, nil); err != nil {
 				return err
 			}
-			var token Token
-			if err := tx.Where("id = ? AND user_id = ?", tokenId, userId).First(&token).Error; err != nil {
+			if err := refundWorkflowQuotaToken(tx, userId, tokenId, refundedQuota); err != nil {
 				return err
-			}
-			if !token.UnlimitedQuota {
-				if err := tx.Model(&Token{}).Where("id = ?", tokenId).Updates(map[string]interface{}{
-					"remain_quota": gorm.Expr("remain_quota + ?", refundedQuota),
-					"used_quota":   gorm.Expr("used_quota - ?", refundedQuota),
-				}).Error; err != nil {
-					return err
-				}
 			}
 		}
 
@@ -533,7 +559,7 @@ func ReleaseWorkflowQuotaReservation(
 				return err
 			}
 		}
-		if err := tx.Model(reservation).Updates(map[string]interface{}{
+		if err := tx.Model(reservation).Updates(map[string]any{
 			"status":         status,
 			"released_quota": targetReleasedQuota,
 		}).Error; err != nil {
@@ -629,21 +655,11 @@ func releaseExpiredWorkflowQuotaReservation(publicId string, userId int, tokenId
 			return ErrWorkflowQuotaReservationConflict
 		}
 		if refundedQuota > 0 {
-			if err := tx.Model(&User{}).Where("id = ?", userId).
-				Update("quota", gorm.Expr("quota + ?", refundedQuota)).Error; err != nil {
+			if err := creditTopUpQuota(tx, userId, refundedQuota, nil); err != nil {
 				return err
 			}
-			var token Token
-			if err := tx.Where("id = ? AND user_id = ?", tokenId, userId).First(&token).Error; err != nil {
+			if err := refundWorkflowQuotaToken(tx, userId, tokenId, refundedQuota); err != nil {
 				return err
-			}
-			if !token.UnlimitedQuota {
-				if err := tx.Model(&Token{}).Where("id = ?", tokenId).Updates(map[string]interface{}{
-					"remain_quota": gorm.Expr("remain_quota + ?", refundedQuota),
-					"used_quota":   gorm.Expr("used_quota - ?", refundedQuota),
-				}).Error; err != nil {
-					return err
-				}
 			}
 		}
 		if err := tx.Model(&WorkflowQuotaReservationItem{}).
@@ -651,7 +667,7 @@ func releaseExpiredWorkflowQuotaReservation(publicId string, userId int, tokenId
 			Update("status", WorkflowQuotaItemStatusReleased).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(reservation).Updates(map[string]interface{}{
+		if err := tx.Model(reservation).Updates(map[string]any{
 			"status":         WorkflowQuotaReservationStatusExpired,
 			"released_quota": refundedQuota,
 		}).Error; err != nil {
@@ -663,10 +679,40 @@ func releaseExpiredWorkflowQuotaReservation(publicId string, userId int, tokenId
 	return &result, changed, err
 }
 
+// A reservation must remain refundable after its token is deleted. Preserve
+// soft-deleted token accounting without changing its status/deletion marker;
+// a physically removed token has no remaining token balance to restore.
+func refundWorkflowQuotaToken(tx *gorm.DB, userId, tokenId, quota int) error {
+	var token Token
+	err := tx.Unscoped().Where("id = ? AND user_id = ?", tokenId, userId).First(&token).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if token.UnlimitedQuota {
+		return nil
+	}
+	result := tx.Unscoped().Model(&Token{}).
+		Where("id = ? AND user_id = ? AND used_quota >= ? AND remain_quota <= ?", tokenId, userId, quota, common.MaxWalletQuota-quota).
+		Updates(map[string]any{
+			"remain_quota": gorm.Expr("remain_quota + ?", quota),
+			"used_quota":   gorm.Expr("used_quota - ?", quota),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrWorkflowQuotaReservationConflict
+	}
+	return nil
+}
+
 // lockWorkflowQuotaReservation 同时校验预占单所有者并加行锁，串行化认领、结算和释放。
 func lockWorkflowQuotaReservation(tx *gorm.DB, publicId string, userId int, tokenId int) (*WorkflowQuotaReservation, error) {
 	var reservation WorkflowQuotaReservation
-	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+	err := lockForUpdate(tx).Where(
 		"public_id = ? AND user_id = ? AND token_id = ?",
 		strings.TrimSpace(publicId),
 		userId,
@@ -677,6 +723,11 @@ func lockWorkflowQuotaReservation(tx *gorm.DB, publicId string, userId int, toke
 	}
 	if err != nil {
 		return nil, err
+	}
+	if reservation.ReservedQuota < 0 || reservation.ReservedQuota > common.MaxWalletQuota ||
+		reservation.ConsumedQuota < 0 || reservation.ConsumedQuota > reservation.ReservedQuota ||
+		reservation.ReleasedQuota < 0 || reservation.ReleasedQuota > reservation.ReservedQuota {
+		return nil, ErrWorkflowQuotaReservationConflict
 	}
 	return &reservation, nil
 }
@@ -698,7 +749,7 @@ func adjustWorkflowQuotaCaches(userId int, tokenId int, delta int) {
 	if token.UnlimitedQuota {
 		return
 	}
-	if err := cacheIncrTokenQuota(token.Key, int64(delta)); err != nil {
+	if _, err := cacheApplyTokenQuotaDelta(tokenId, token.Key, int64(delta)); err != nil {
 		common.SysLog("adjust workflow reservation token quota cache failed: " + err.Error())
 	}
 }

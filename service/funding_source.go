@@ -1,8 +1,10 @@
 package service
 
 import (
+	"errors"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -30,18 +32,21 @@ type FundingSource interface {
 // 整个工作流的额度已经在任务开始前一次性扣除，这里只负责节点认领和实际消费登记。
 type WorkflowReservationFunding struct {
 	reservationId string
-	itemKey        string
-	userId         int
-	tokenId        int
-	requestId      string
-	preConsumed    int
-	claimed        bool
+	itemKey       string
+	userId        int
+	tokenId       int
+	requestId     string
+	preConsumed   int
+	claimed       bool
 }
 
 func (w *WorkflowReservationFunding) Source() string { return BillingSourceWorkflowReservation }
 
 // PreConsume 在调用上游前认领节点预算，相同 requestId 重试时保持幂等。
 func (w *WorkflowReservationFunding) PreConsume(amount int) error {
+	if amount < 0 || amount > common.MaxQuota {
+		return model.ErrWorkflowQuotaItemExceeded
+	}
 	if err := model.ClaimWorkflowQuotaItem(
 		w.reservationId,
 		w.itemKey,
@@ -59,6 +64,9 @@ func (w *WorkflowReservationFunding) PreConsume(amount int) error {
 
 // Settle 登记节点最终消费；钱包余额已预扣，因此这里只更新预占主单和明细。
 func (w *WorkflowReservationFunding) Settle(delta int) error {
+	if delta < -w.preConsumed || delta > common.MaxQuota-w.preConsumed {
+		return model.ErrWorkflowQuotaItemExceeded
+	}
 	actualQuota := w.preConsumed + delta
 	if err := model.SettleWorkflowQuotaItem(
 		w.reservationId,
@@ -90,6 +98,9 @@ func (w *WorkflowReservationFunding) Reserve(delta int) error {
 	if delta <= 0 {
 		return nil
 	}
+	if delta > common.MaxQuota-w.preConsumed {
+		return model.ErrWorkflowQuotaItemExceeded
+	}
 	targetQuota := w.preConsumed + delta
 	if err := model.ClaimWorkflowQuotaItem(
 		w.reservationId,
@@ -109,6 +120,11 @@ func (w *WorkflowReservationFunding) Reserve(delta int) error {
 // WalletFunding — 钱包资金来源实现
 // ---------------------------------------------------------------------------
 
+// ErrInsufficientWalletQuota 钱包原子预扣失败（余额不足），未发生任何扣减。
+// BillingSession 据此映射为 ErrorCodeInsufficientUserQuota，
+// 使 wallet_first 等计费偏好可以回退到订阅。
+var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
+
 type WalletFunding struct {
 	userId   int
 	consumed int // 实际预扣的用户额度
@@ -120,10 +136,15 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
 	}
-	if err := model.DecreaseUserQuota(w.userId, amount, false); err != nil {
+	reserved, err := model.TryReserveUserQuota(w.userId, amount)
+	if err != nil {
 		return err
 	}
-	w.consumed = amount
+	if !reserved {
+		return ErrInsufficientWalletQuota
+	}
+	// 发送前补扣会再次预扣，累加后退款才能退回全部预扣。
+	w.consumed += amount
 	return nil
 }
 
@@ -208,7 +229,7 @@ func refundWithRetry(fn func() error) error {
 	}
 	const maxAttempts = 3
 	var lastErr error
-	for i := 0; i < maxAttempts; i++ {
+	for i := range maxAttempts {
 		if err := fn(); err == nil {
 			return nil
 		} else {

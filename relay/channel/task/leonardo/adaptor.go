@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
@@ -89,11 +90,11 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, err
 	}
 	body := map[string]any{
-		"prompt":  strings.TrimSpace(req.Prompt),
-		"model":   strings.TrimSpace(info.UpstreamModelName),
-		"count":   1,
+		"prompt":   strings.TrimSpace(req.Prompt),
+		"model":    strings.TrimSpace(info.UpstreamModelName),
+		"count":    1,
 		"strategy": "rr",
-		"dryRun":  false,
+		"dryRun":   false,
 	}
 	if body["model"] == "" {
 		body["model"] = strings.TrimSpace(req.Model)
@@ -155,48 +156,36 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
-	resp, err := channel.DoTaskApiRequest(a, c, info, requestBody)
-	if err != nil {
-		return nil, err
-	}
-	// Leonardo Admin intentionally returns 202 for the asynchronous enqueue,
-	// while RelayTaskSubmit expects a normalized successful HTTP response before
-	// invoking DoResponse.
-	if resp != nil && resp.StatusCode == http.StatusAccepted {
-		resp.StatusCode = http.StatusOK
-		resp.Status = "200 OK"
-	}
-	return resp, nil
+	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
+func (a *TaskAdaptor) ParseResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if err != nil {
-		return "", nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
+		return nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
 	}
 	var submitted submitResponse
 	if err = common.Unmarshal(body, &submitted); err != nil || strings.TrimSpace(submitted.ID) == "" {
 		if err == nil {
 			err = errors.New("missing job id")
 		}
-		return "", body, service.TaskErrorWrapper(errors.Wrap(err, "invalid Leonardo Admin video response"), "invalid_response", http.StatusBadGateway)
+		return nil, service.TaskErrorWrapper(errors.Wrap(err, "invalid Leonardo Admin video response"), "invalid_response", http.StatusBadGateway)
 	}
-	video := dto.NewOpenAIVideo()
+	video := kitdto.NewOpenAIVideo()
 	video.ID = info.PublicTaskID
 	video.TaskID = info.PublicTaskID
 	video.Model = info.OriginModelName
 	video.Progress = 20
 	video.CreatedAt = time.Now().Unix()
-	c.JSON(http.StatusOK, video)
-	return submitted.ID, body, nil
+	return &channel.TaskSubmitResponse{UpstreamTaskID: submitted.ID, TaskData: body, ClientResponse: video}, nil
 }
 
-func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
-	taskID, ok := body["task_id"].(string)
-	if !ok || strings.TrimSpace(taskID) == "" {
+func (a *TaskAdaptor) FetchTask(baseURL, key string, task *model.Task, proxy string) (*http.Response, error) {
+	if task == nil || strings.TrimSpace(task.GetUpstreamTaskID()) == "" {
 		return nil, errors.New("invalid task_id")
 	}
+	taskID := task.GetUpstreamTaskID()
 	url := fmt.Sprintf("%s/api/jobs/%s", strings.TrimRight(baseURL, "/"), taskID)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -211,7 +200,7 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	return client.Do(req)
 }
 
-func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error) {
+func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, body []byte) (*relaycommon.TaskInfo, error) {
 	var job adminJob
 	if err := common.Unmarshal(body, &job); err != nil {
 		return nil, errors.Wrap(err, "unmarshal Leonardo Admin job")
@@ -261,8 +250,7 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.Progress = taskcommon.ProgressComplete
 		result.Reason = errorMessage(job.Error)
 	default:
-		result.Status = model.TaskStatusInProgress
-		result.Progress = taskcommon.ProgressInProgress
+		result.Status = model.TaskStatusUnknown
 	}
 	return result, nil
 }
@@ -306,7 +294,7 @@ func adminJobPending(job adminJob) bool {
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
-	video := dto.NewOpenAIVideo()
+	video := kitdto.NewOpenAIVideo()
 	video.ID = task.TaskID
 	video.TaskID = task.TaskID
 	video.Model = task.Properties.OriginModelName
@@ -319,7 +307,7 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 		video.SetMetadata("video_url", url)
 	}
 	if task.Status == model.TaskStatusFailure {
-		video.Error = &dto.OpenAIVideoError{Message: firstNonEmpty(task.FailReason, "task failed"), Code: "task_failed"}
+		video.Error = &kitdto.OpenAIVideoError{Message: firstNonEmpty(task.FailReason, "task failed"), Code: "task_failed"}
 	}
 	return common.Marshal(video)
 }

@@ -12,14 +12,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
+	hostdto "github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	kittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
@@ -185,6 +187,10 @@ func writeWorkflowQuotaReleaseResponse(c *gin.Context, reservation *model.Workfl
 
 // quoteWorkflowQuotaItem 复用正式请求的价格计算器，按 adapter 补齐协议默认值。
 func quoteWorkflowQuotaItem(c *gin.Context, item workflowQuotaQuoteItem) (int, error) {
+	item, err := normalizeWorkflowQuotaQuoteItem(item)
+	if err != nil {
+		return 0, err
+	}
 	item.ItemKey = strings.TrimSpace(item.ItemKey)
 	item.Adapter = strings.TrimSpace(item.Adapter)
 	item.Model = strings.TrimSpace(item.Model)
@@ -194,7 +200,7 @@ func quoteWorkflowQuotaItem(c *gin.Context, item workflowQuotaQuoteItem) (int, e
 	if err := validateWorkflowQuotaTokenModel(c, item.Model); err != nil {
 		return 0, err
 	}
-	if err := validateWorkflowQuotaModelAvailability(c, item.Model); err != nil {
+	if err := validateWorkflowQuotaModelAvailability(c, item); err != nil {
 		return 0, err
 	}
 
@@ -205,13 +211,9 @@ func quoteWorkflowQuotaItem(c *gin.Context, item workflowQuotaQuoteItem) (int, e
 
 	switch item.Adapter {
 	case "newapi.chat":
-		maxTokens := item.MaxTokens
-		if maxTokens <= 0 {
-			maxTokens = 4096
-		}
-		meta := &types.TokenCountMeta{
+		meta := &kittypes.TokenCountMeta{
 			CombineText: item.Prompt,
-			MaxTokens:   maxTokens,
+			MaxTokens:   item.MaxTokens,
 		}
 		promptTokens, err := service.EstimateRequestToken(c, meta, info)
 		if err != nil {
@@ -221,13 +223,34 @@ func quoteWorkflowQuotaItem(c *gin.Context, item workflowQuotaQuoteItem) (int, e
 		if err != nil {
 			return 0, err
 		}
-		return reserveQuotaWithBuffer(price.QuotaToPreConsume), nil
-	case "newapi.images":
-		n := item.N
-		if n <= 0 {
-			n = 1
+		quota := price.QuotaToPreConsume
+		// Ordinary gateway pre-consume estimates only the input. A workflow
+		// reserves the node's output budget as well, without changing the
+		// regular request's pricing or settlement algorithm.
+		if snap := info.TieredBillingSnapshot; snap != nil {
+			input := billingexpr.RequestInput{}
+			if info.BillingRequestInput != nil {
+				input = *info.BillingRequestInput
+			}
+			result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, billingexpr.TokenParams{
+				P: float64(promptTokens), C: float64(item.MaxTokens), Len: float64(promptTokens),
+			}, input)
+			if err != nil {
+				return 0, err
+			}
+			if result.Clamp != nil {
+				return 0, result.Clamp
+			}
+			quota = max(quota, result.ActualQuotaAfterGroup)
+		} else if !price.UsePrice && !price.FreeModel {
+			quota, err = common.QuotaFromFloatStrict(float64(quota) + float64(item.MaxTokens)*price.ModelRatio*price.CompletionRatio*price.GroupRatioInfo.GroupRatio)
+			if err != nil {
+				return 0, err
+			}
 		}
-		imageN := uint(n)
+		return reserveQuotaWithBuffer(quota)
+	case "newapi.images":
+		imageN := uint(item.N)
 		request := &dto.ImageRequest{
 			Model:   item.Model,
 			Prompt:  item.Prompt,
@@ -235,6 +258,20 @@ func quoteWorkflowQuotaItem(c *gin.Context, item workflowQuotaQuoteItem) (int, e
 			Size:    item.Size,
 			Quality: item.Quality,
 		}
+		if strings.Contains(request.Size, "×") {
+			return 0, errors.New("image size must use 'x' instead of '×'")
+		}
+		if err := request.NormalizeLegacyDalleImageRequest(); err != nil {
+			return 0, err
+		}
+		if request.Model == "gpt-image-1" && request.Quality == "" {
+			request.Quality = "auto"
+		}
+		if _, err := request.ImageCount(false); err != nil {
+			return 0, err
+		}
+		info.Request = request
+		info.ImageRequestCount = item.N
 		meta := request.GetTokenCountMeta()
 		promptTokens, err := service.EstimateRequestToken(c, meta, info)
 		if err != nil {
@@ -244,8 +281,8 @@ func quoteWorkflowQuotaItem(c *gin.Context, item workflowQuotaQuoteItem) (int, e
 		if err != nil {
 			return 0, err
 		}
-		// 图片数量在真实响应结算阶段才乘入，这里必须提前计入整单报价。
-		return reserveQuotaWithBuffer(price.QuotaToPreConsume * n), nil
+		// The shared image pricing helper already applies the validated count.
+		return reserveQuotaWithBuffer(price.QuotaToPreConsume)
 	case "newapi.video":
 		price, err := helper.ModelPriceHelperPerCall(c, info)
 		if err != nil {
@@ -254,25 +291,49 @@ func quoteWorkflowQuotaItem(c *gin.Context, item workflowQuotaQuoteItem) (int, e
 		if price.FreeModel {
 			return 0, nil
 		}
-		seconds := item.Seconds
-		if seconds <= 0 {
-			seconds = 5
+		multiplier := workflowVideoQuoteMultiplier(c, item, info, item.Seconds, item.N)
+		quota, err := common.QuotaFromFloatStrict(math.Ceil(float64(price.Quota) * multiplier))
+		if err != nil {
+			return 0, err
 		}
-		n := item.N
-		if n <= 0 {
-			n = 1
-		}
-		multiplier := workflowVideoQuoteMultiplier(c, item, info, seconds, n)
-		return reserveQuotaWithBuffer(int(math.Ceil(float64(price.Quota) * multiplier))), nil
+		return reserveQuotaWithBuffer(quota)
 	default:
 		return 0, fmt.Errorf("不支持的工作流计费 adapter: %s", item.Adapter)
 	}
 }
 
+// normalizeWorkflowQuotaQuoteItem shares the relay's quantity limits before
+// creating metadata or evaluating any pricing multiplier.
+func normalizeWorkflowQuotaQuoteItem(item workflowQuotaQuoteItem) (workflowQuotaQuoteItem, error) {
+	if item.MaxTokens < 0 {
+		return item, errors.New("max_tokens is invalid")
+	}
+	maxTokens := uint(item.MaxTokens)
+	if helper.ExceedsMaxTokensLimit(&maxTokens) {
+		return item, errors.New("max_tokens is invalid")
+	}
+	if item.N < 0 || item.N > dto.MaxImageN {
+		return item, fmt.Errorf("n must be between 1 and %d", dto.MaxImageN)
+	}
+	if item.Seconds < 0 || item.Seconds > relaycommon.MaxTaskDurationSeconds {
+		return item, fmt.Errorf("seconds must be between 1 and %d", relaycommon.MaxTaskDurationSeconds)
+	}
+	if item.N == 0 {
+		item.N = 1
+	}
+	if strings.TrimSpace(item.Adapter) == "newapi.chat" && item.MaxTokens == 0 {
+		item.MaxTokens = 4096
+	}
+	if strings.TrimSpace(item.Adapter) == "newapi.video" && item.Seconds == 0 {
+		item.Seconds = 5
+	}
+	return item, nil
+}
+
 // validateWorkflowQuotaModelAvailability 提前确认每个节点至少存在一个可用渠道。
 // 该检查不能保证渠道在真实执行时永不变化，但能拦住发布时就不可用的后续模型。
-func validateWorkflowQuotaModelAvailability(c *gin.Context, modelName string) error {
-	channel, err := workflowQuotaFindAvailableChannel(c, modelName)
+func validateWorkflowQuotaModelAvailability(c *gin.Context, item workflowQuotaQuoteItem) error {
+	channel, err := workflowQuotaFindAvailableChannel(c, item)
 	if err != nil {
 		return err
 	}
@@ -280,26 +341,38 @@ func validateWorkflowQuotaModelAvailability(c *gin.Context, modelName string) er
 		return nil
 	}
 	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-	return fmt.Errorf("%w: 分组 %s 没有模型 %s 的可用渠道", errWorkflowQuotaModelUnavailable, usingGroup, modelName)
+	return fmt.Errorf("%w: 分组 %s 没有模型 %s 的可用渠道", errWorkflowQuotaModelUnavailable, usingGroup, item.Model)
 }
 
-func workflowQuotaFindAvailableChannel(c *gin.Context, modelName string) (*model.Channel, error) {
+func workflowQuotaFindAvailableChannel(c *gin.Context, item workflowQuotaQuoteItem) (*model.Channel, error) {
+	requestPath := ""
+	switch item.Adapter {
+	case "newapi.chat":
+		requestPath = "/v1/chat/completions"
+	case "newapi.images":
+		requestPath = "/v1/images/generations"
+	case "newapi.video":
+		requestPath = "/v1/video/generations"
+	default:
+		return nil, fmt.Errorf("不支持的工作流计费 adapter: %s", item.Adapter)
+	}
+	// A workflow can quote several protocols in one HTTP request. Keep each
+	// node's path filter separate while retaining token pins and other filters.
+	quoteContext := c.Copy()
+	constraints := *service.GetChannelConstraints(c)
+	constraints.Pins = append([]hostdto.ChannelPin(nil), constraints.Pins...)
+	constraints.Filters = append([]hostdto.ChannelFilter(nil), constraints.Filters...)
+	constraints.AddFilter(hostdto.ChannelFilter{Kind: hostdto.FilterRequestPath, RequestPath: requestPath})
+	common.SetContextKey(quoteContext, constant.ContextKeyChannelConstraints, &constraints)
 	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-	groups := []string{usingGroup}
-	if usingGroup == "auto" {
-		userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-		groups = service.GetUserAutoGroup(userGroup)
+	channel, _, selectErr := service.SelectChannelForRequest(quoteContext, item.Model, &service.RetryParam{
+		Ctx: quoteContext, TokenGroup: usingGroup, ModelName: item.Model,
+		RequestPath: requestPath, Retry: common.GetPointer(0),
+	})
+	if selectErr != nil {
+		return nil, fmt.Errorf("%w: %s %s", errWorkflowQuotaModelUnavailable, selectErr.Code, selectErr.Message)
 	}
-	for _, group := range groups {
-		channel, err := model.GetRandomSatisfiedChannel(group, modelName, 0)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %s", errWorkflowQuotaModelUnavailable, err.Error())
-		}
-		if channel != nil {
-			return channel, nil
-		}
-	}
-	return nil, nil
+	return channel, nil
 }
 
 // validateWorkflowQuotaTokenModel 在整单预占阶段提前执行 Token 模型白名单检查。
@@ -316,8 +389,7 @@ func validateWorkflowQuotaTokenModel(c *gin.Context, modelName string) error {
 	if !ok {
 		return fmt.Errorf("%w: API Token 模型权限配置格式错误", errWorkflowQuotaModelForbidden)
 	}
-	matchName := ratio_setting.FormatMatchingModelName(modelName)
-	if !limits[matchName] {
+	if !middleware.TokenModelLimitAllows(limits, modelName) {
 		return fmt.Errorf("%w: API Token 无权使用模型 %s", errWorkflowQuotaModelForbidden, modelName)
 	}
 	return nil
@@ -325,7 +397,7 @@ func validateWorkflowQuotaTokenModel(c *gin.Context, modelName string) error {
 
 // workflowQuotaRelayInfo 构造只用于报价的 RelayInfo，不会发起上游请求或产生消费日志。
 func workflowQuotaRelayInfo(c *gin.Context, item workflowQuotaQuoteItem) (*relaycommon.RelayInfo, error) {
-	requestBody, err := common.Marshal(map[string]interface{}{
+	requestBody, err := common.Marshal(map[string]any{
 		"model":        item.Model,
 		"prompt":       item.Prompt,
 		"max_tokens":   item.MaxTokens,
@@ -350,11 +422,12 @@ func workflowQuotaRelayInfo(c *gin.Context, item workflowQuotaQuoteItem) (*relay
 		UserGroup:       common.GetContextKeyString(c, constant.ContextKeyUserGroup),
 		OriginModelName: item.Model,
 		UserSetting:     userSetting,
-		RelayFormat:     types.RelayFormatOpenAI,
+		RelayFormat:     kittypes.RelayFormatOpenAI,
 		BillingRequestInput: &billingexpr.RequestInput{
 			Body: requestBody,
 		},
 		TaskRelayInfo: &relaycommon.TaskRelayInfo{},
+		ChannelMeta:   &relaycommon.ChannelMeta{},
 	}
 	return info, nil
 }
@@ -368,7 +441,7 @@ func workflowVideoQuoteMultiplier(c *gin.Context, item workflowQuotaQuoteItem, i
 }
 
 func workflowVideoQuoteMultiplierFromChannel(c *gin.Context, item workflowQuotaQuoteItem, info *relaycommon.RelayInfo) (float64, bool) {
-	channel, err := workflowQuotaFindAvailableChannel(c, item.Model)
+	channel, err := workflowQuotaFindAvailableChannel(c, item)
 	if err != nil || channel == nil {
 		return 0, false
 	}
@@ -406,11 +479,14 @@ func workflowVideoQuoteMultiplierFromAdaptor(c *gin.Context, item workflowQuotaQ
 	}
 	ratios := adaptor.EstimateBilling(c, info)
 	if len(ratios) > 0 {
-		multiplier := float64(n)
-		for _, ratio := range ratios {
-			multiplier *= ratio
+		price := &types.PriceData{}
+		for key, ratio := range ratios {
+			price.AddOtherRatio(key, ratio)
+			if !price.HasOtherRatio(key) {
+				return math.NaN(), true
+			}
 		}
-		return multiplier, true
+		return float64(n) * price.OtherRatioMultiplier(), true
 	}
 	if workflowVideoChannelUsesBasePerCallBilling(channelType) {
 		return float64(n), true
@@ -423,7 +499,7 @@ func workflowVideoTaskSubmitReq(item workflowQuotaQuoteItem) relaycommon.TaskSub
 	if item.Seconds > 0 {
 		seconds = strconv.Itoa(item.Seconds)
 	}
-	metadata := map[string]interface{}{}
+	metadata := map[string]any{}
 	if strings.TrimSpace(item.Resolution) != "" {
 		metadata["resolution"] = item.Resolution
 	}
@@ -442,7 +518,9 @@ func workflowVideoTaskSubmitReq(item workflowQuotaQuoteItem) relaycommon.TaskSub
 
 func workflowVideoChannelUsesBasePerCallBilling(channelType int) bool {
 	switch channelType {
-	case constant.ChannelTypeGrokVideo,
+	case constant.ChannelTypeOpenAI,
+		constant.ChannelTypeSora,
+		constant.ChannelTypeGrokVideo,
 		constant.ChannelTypeJunliai,
 		constant.ChannelTypeKieVideo,
 		constant.ChannelTypeRunningHub,
@@ -475,9 +553,12 @@ func workflowVideoResolutionUpperRatio(resolution string) float64 {
 }
 
 // reserveQuotaWithBuffer 为响应后才能确认的实际费用预留缓冲，多余部分在终态释放。
-func reserveQuotaWithBuffer(quota int) int {
-	if quota <= 0 {
-		return 0
+func reserveQuotaWithBuffer(quota int) (int, error) {
+	if quota < 0 {
+		return 0, errors.New("workflow quota must not be negative")
+	}
+	if quota == 0 {
+		return 0, nil
 	}
 	ratio := 1.1
 	configured, err := strconv.ParseFloat(
@@ -487,7 +568,7 @@ func reserveQuotaWithBuffer(quota int) int {
 	if err == nil && configured >= 1 && configured <= 3 {
 		ratio = configured
 	}
-	return int(math.Ceil(float64(quota) * ratio))
+	return common.QuotaFromFloatStrict(math.Ceil(float64(quota) * ratio))
 }
 
 // workflowQuotaRequestAuthorized 使用常量时间比较校验 SSO 与 NewAPI 的共享密钥。
@@ -504,13 +585,13 @@ func workflowQuotaRequestAuthorized(c *gin.Context) bool {
 func writeWorkflowQuotaModelError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, model.ErrWorkflowQuotaUserInsufficient):
-		workflowQuotaError(c, http.StatusForbidden, string(types.ErrorCodeInsufficientUserQuota), "用户额度不足，无法预占整个工作流费用")
+		workflowQuotaError(c, http.StatusForbidden, string(kittypes.ErrorCodeInsufficientUserQuota), "用户额度不足，无法预占整个工作流费用")
 	case errors.Is(err, model.ErrWorkflowQuotaTokenInsufficient):
-		workflowQuotaError(c, http.StatusForbidden, string(types.ErrorCodePreConsumeTokenQuotaFailed), "API Token 额度不足，无法预占整个工作流费用")
+		workflowQuotaError(c, http.StatusForbidden, string(kittypes.ErrorCodePreConsumeTokenQuotaFailed), "API Token 额度不足，无法预占整个工作流费用")
 	case errors.Is(err, model.ErrWorkflowQuotaReservationExpired):
-		workflowQuotaError(c, http.StatusConflict, string(types.ErrorCodeWorkflowQuotaReservationExpired), "工作流额度预占单已过期")
+		workflowQuotaError(c, http.StatusConflict, string(kittypes.ErrorCodeWorkflowQuotaReservationExpired), "工作流额度预占单已过期")
 	case errors.Is(err, model.ErrWorkflowQuotaItemExceeded):
-		workflowQuotaError(c, http.StatusConflict, string(types.ErrorCodeWorkflowQuotaItemExceeded), "节点实际所需额度超过工作流预占额度")
+		workflowQuotaError(c, http.StatusConflict, string(kittypes.ErrorCodeWorkflowQuotaItemExceeded), "节点实际所需额度超过工作流预占额度")
 	case errors.Is(err, model.ErrWorkflowQuotaBatchUpdateEnabled):
 		workflowQuotaError(c, http.StatusServiceUnavailable, "workflow_quota_configuration_error", "工作流额度预占要求关闭 BATCH_UPDATE_ENABLED")
 	case errors.Is(err, model.ErrWorkflowQuotaReservationNotFound),
@@ -518,7 +599,7 @@ func writeWorkflowQuotaModelError(c *gin.Context, err error) {
 		errors.Is(err, model.ErrWorkflowQuotaReservationClosed),
 		errors.Is(err, model.ErrWorkflowQuotaItemNotFound),
 		errors.Is(err, model.ErrWorkflowQuotaItemConflict):
-		workflowQuotaError(c, http.StatusConflict, string(types.ErrorCodeWorkflowQuotaReservationInvalid), err.Error())
+		workflowQuotaError(c, http.StatusConflict, string(kittypes.ErrorCodeWorkflowQuotaReservationInvalid), err.Error())
 	default:
 		workflowQuotaError(c, http.StatusInternalServerError, "workflow_quota_internal_error", err.Error())
 	}

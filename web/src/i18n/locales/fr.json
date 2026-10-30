@@ -1,5 +1,13 @@
 {
   "translation": {
+    "Billing trace refund": "Remboursement par trace de facturation",
+    "billing refund accounting conflict": "Conflit dans l’état comptable du remboursement",
+    "Task billing is not complete. Retry the refund later.": "La facturation de la tâche n’est pas terminée. Réessayez le remboursement plus tard.",
+    "manual billing refunds require batch update disabled": "Les remboursements manuels nécessitent la désactivation des mises à jour par lot",
+    "billing_trace_id must contain 1 to 128 bytes": "billing_trace_id doit contenir entre 1 et 128 octets",
+    "billing database is unavailable": "La base de données de facturation est indisponible",
+    "invalid refund request": "Demande de remboursement non valide",
+    "refund metadata is too long": "Les métadonnées du remboursement sont trop longues",
     "Billing trace refunds are no longer supported.": "Les remboursements par trace de facturation ne sont plus pris en charge.",
     "SSO synchronization is not authorized.": "La synchronisation SSO n’est pas autorisée.",
     "Invalid SSO synchronization request.": "Requête de synchronisation SSO non valide.",

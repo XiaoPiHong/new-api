@@ -296,6 +296,13 @@ func taskModelName(task *model.Task) string {
 // 当异步任务失败时，退还资金与令牌额度，并回减用户和渠道用量。
 // 返回资金来源是否已成功退还；失败时保留 quota，供显式重试或人工对账。
 func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool {
+	if task.BillingTraceId != "" || task.PrivateData.BillingTraceId != "" {
+		_, err := refundTraceTaskQuota(ctx, task, reason, false)
+		if err != nil {
+			logger.LogWarn(ctx, common.LogText("failed to refund the funding source, task %s: %s", task.TaskID, err.Error()))
+		}
+		return err == nil
+	}
 	quota := task.Quota
 	if quota == 0 {
 		return true
@@ -347,6 +354,35 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	return true
 }
 
+// Both the legacy admin trace endpoint and automatic trace-backed task failure
+// use the same primary-database transaction. The log is observational: a failed
+// log write never makes the committed zero-quota task refundable a second time.
+func refundTraceTaskQuota(ctx context.Context, task *model.Task, reason string, requireTerminal bool) (int, error) {
+	stored, quota, err := model.AdjustTaskBillingQuota(ctx, task.ID, 0, true, requireTerminal)
+	if err != nil {
+		return 0, err
+	}
+	task.Quota = stored.Quota
+	task.PrivateData.BillingRefunded = stored.PrivateData.BillingRefunded
+	if quota == 0 {
+		return 0, nil
+	}
+	other := taskBillingOther(stored)
+	other.SetPublic("task_id", stored.TaskID)
+	other.SetAdmin("refund_reason", reason)
+	traceID := stored.BillingTraceId
+	if traceID == "" {
+		traceID = stored.PrivateData.BillingTraceId
+	}
+	other.SetPublic("billing_trace_id", traceID)
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+		UserId: stored.UserId, LogType: model.LogTypeRefund, ChannelId: stored.ChannelId,
+		ModelName: taskModelName(stored), Quota: quota, TokenId: stored.PrivateData.TokenId,
+		Group: stored.Group, BillingTraceId: traceID, Other: other, NodeName: stored.PrivateData.NodeName,
+	})
+	return quota, nil
+}
+
 // RecalculateTaskQuota 通用的异步差额结算。
 // actualQuota 是任务完成后的实际应扣额度，与预扣额度 (task.Quota) 做差额结算。
 // reason 写入日志内容（例如按 token 重算或 adaptor 调整）。
@@ -356,6 +392,18 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		return
 	}
 	preConsumedQuota := task.Quota
+	atomicTrace := task.BillingTraceId != "" || task.PrivateData.BillingTraceId != ""
+	if atomicTrace {
+		stored, previous, err := model.AdjustTaskBillingQuota(ctx, task.ID, actualQuota, false, false)
+		if err != nil {
+			logger.LogError(ctx, common.LogText("failed to adjust funding for the difference, task %s: %s", task.TaskID, err.Error()))
+			return
+		}
+		preConsumedQuota = previous
+		actualQuota = stored.Quota
+		task.Quota = stored.Quota
+		task.PrivateData.BillingRefunded = stored.PrivateData.BillingRefunded
+	}
 	quotaDelta := actualQuota - preConsumedQuota
 
 	if quotaDelta == 0 {
@@ -372,23 +420,25 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		reason.Error(),
 	))
 
-	// 调整资金来源
-	if err := taskAdjustFunding(task, quotaDelta); err != nil {
-		logger.LogError(ctx, common.LogText("failed to adjust funding for the difference, task %s: %s", task.TaskID, err.Error()))
-		return
+	if !atomicTrace {
+		// 普通无 trace 任务保留原有结算路径。
+		if err := taskAdjustFunding(task, quotaDelta); err != nil {
+			logger.LogError(ctx, common.LogText("failed to adjust funding for the difference, task %s: %s", task.TaskID, err.Error()))
+			return
+		}
+
+		// 调整令牌额度
+		taskAdjustTokenQuota(ctx, task, quotaDelta)
+
+		task.Quota = actualQuota
+		if err := task.UpdateQuota(); err != nil {
+			logger.LogError(ctx, common.LogText("failed to write back the settled task quota, task %s: %s", task.TaskID, err.Error()))
+		}
+
+		// 提交阶段已经累计过一次请求；结算阶段只调整最终用量。
+		model.UpdateUserUsedQuota(task.UserId, quotaDelta)
+		model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 	}
-
-	// 调整令牌额度
-	taskAdjustTokenQuota(ctx, task, quotaDelta)
-
-	task.Quota = actualQuota
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, common.LogText("failed to write back the settled task quota, task %s: %s", task.TaskID, err.Error()))
-	}
-
-	// 提交阶段已经累计过一次请求；结算阶段只调整最终用量。
-	model.UpdateUserUsedQuota(task.UserId, quotaDelta)
-	model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 
 	var logType int
 	var logQuota int

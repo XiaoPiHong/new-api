@@ -288,6 +288,10 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		}
 		// Don't return error - fall through to DB
 	}
+	quotaEpoch, epochErr := readBillingQuotaEpoch(getTokenCacheKey(key))
+	if epochErr != nil {
+		quotaEpoch = "unavailable"
+	}
 	token = &Token{}
 	if err = DB.Where(commonKeyCol+" = ?", key).First(token).Error; err != nil {
 		return nil, err
@@ -295,7 +299,7 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 	if common.RedisEnabled {
 		// 冷缓存时用数据库快照初始化；已存在的哈希只刷新 TTL，
 		// 避免快照覆盖 Redis 中已被原子预扣的余额。初始化失败不影响本次读取。
-		if _, cacheErr := cacheInitToken(*token); cacheErr != nil {
+		if _, cacheErr := cacheInitToken(*token, quotaEpoch); cacheErr != nil {
 			common.SysLog(common.LogText("failed to init token cache: %s", cacheErr.Error()))
 		}
 	}

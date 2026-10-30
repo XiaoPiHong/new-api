@@ -1,5 +1,13 @@
 {
   "translation": {
+    "Billing trace refund": "账单追踪退款",
+    "billing refund accounting conflict": "退款账务状态冲突",
+    "Task billing is not complete. Retry the refund later.": "任务尚未结算完成，请稍后重试退款。",
+    "manual billing refunds require batch update disabled": "手动账单退款要求关闭批量更新",
+    "billing_trace_id must contain 1 to 128 bytes": "billing_trace_id 的长度必须为 1 到 128 字节",
+    "billing database is unavailable": "账单数据库不可用",
+    "invalid refund request": "退款请求无效",
+    "refund metadata is too long": "退款附加信息过长",
     "Billing trace refunds are no longer supported.": "账单追踪退款接口已停用。",
     "SSO synchronization is not authorized.": "SSO 同步未获授权。",
     "Invalid SSO synchronization request.": "SSO 同步请求无效。",

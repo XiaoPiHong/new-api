@@ -1,5 +1,13 @@
 {
   "translation": {
+    "Billing trace refund": "Billing trace refund",
+    "billing refund accounting conflict": "billing refund accounting conflict",
+    "Task billing is not complete. Retry the refund later.": "Task billing is not complete. Retry the refund later.",
+    "manual billing refunds require batch update disabled": "manual billing refunds require batch update disabled",
+    "billing_trace_id must contain 1 to 128 bytes": "billing_trace_id must contain 1 to 128 bytes",
+    "billing database is unavailable": "billing database is unavailable",
+    "invalid refund request": "invalid refund request",
+    "refund metadata is too long": "refund metadata is too long",
     "Billing trace refunds are no longer supported.": "Billing trace refunds are no longer supported.",
     "SSO synchronization is not authorized.": "SSO synchronization is not authorized.",
     "Invalid SSO synchronization request.": "Invalid SSO synchronization request.",

@@ -1,5 +1,13 @@
 {
   "translation": {
+    "Billing trace refund": "請求トレースの返金",
+    "billing refund accounting conflict": "返金の会計状態に不整合があります",
+    "Task billing is not complete. Retry the refund later.": "タスクの精算が完了していません。後ほど返金を再試行してください。",
+    "manual billing refunds require batch update disabled": "手動返金にはバッチ更新を無効にする必要があります",
+    "billing_trace_id must contain 1 to 128 bytes": "billing_trace_id は 1～128 バイトで指定してください",
+    "billing database is unavailable": "請求データベースを利用できません",
+    "invalid refund request": "返金リクエストが無効です",
+    "refund metadata is too long": "返金のメタデータが長すぎます",
     "Billing trace refunds are no longer supported.": "請求トレースによる返金はサポートされなくなりました。",
     "SSO synchronization is not authorized.": "SSO 同期が許可されていません。",
     "Invalid SSO synchronization request.": "SSO 同期リクエストが無効です。",

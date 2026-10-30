@@ -1,5 +1,13 @@
 {
   "translation": {
+    "Billing trace refund": "Hoàn tiền theo mã truy vết thanh toán",
+    "billing refund accounting conflict": "Xung đột trạng thái hạch toán hoàn tiền",
+    "Task billing is not complete. Retry the refund later.": "Tác vụ chưa được quyết toán xong. Vui lòng thử hoàn tiền lại sau.",
+    "manual billing refunds require batch update disabled": "Cần tắt cập nhật hàng loạt để hoàn tiền thủ công",
+    "billing_trace_id must contain 1 to 128 bytes": "billing_trace_id phải có độ dài từ 1 đến 128 byte",
+    "billing database is unavailable": "Cơ sở dữ liệu thanh toán không khả dụng",
+    "invalid refund request": "Yêu cầu hoàn tiền không hợp lệ",
+    "refund metadata is too long": "Siêu dữ liệu hoàn tiền quá dài",
     "Billing trace refunds are no longer supported.": "Hoàn tiền theo mã truy vết thanh toán không còn được hỗ trợ.",
     "SSO synchronization is not authorized.": "Chưa được cấp quyền đồng bộ SSO.",
     "Invalid SSO synchronization request.": "Yêu cầu đồng bộ SSO không hợp lệ.",

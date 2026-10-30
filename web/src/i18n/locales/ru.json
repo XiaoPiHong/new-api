@@ -1,5 +1,13 @@
 {
   "translation": {
+    "Billing trace refund": "Возврат по идентификатору операции биллинга",
+    "billing refund accounting conflict": "Конфликт состояния учёта возврата",
+    "Task billing is not complete. Retry the refund later.": "Расчёт стоимости задачи ещё не завершён. Повторите возврат позже.",
+    "manual billing refunds require batch update disabled": "Для ручного возврата необходимо отключить пакетное обновление",
+    "billing_trace_id must contain 1 to 128 bytes": "billing_trace_id должен содержать от 1 до 128 байт",
+    "billing database is unavailable": "База данных биллинга недоступна",
+    "invalid refund request": "Недопустимый запрос на возврат",
+    "refund metadata is too long": "Слишком длинные метаданные возврата",
     "Billing trace refunds are no longer supported.": "Возвраты по идентификатору операции биллинга больше не поддерживаются.",
     "SSO synchronization is not authorized.": "Синхронизация SSO не разрешена.",
     "Invalid SSO synchronization request.": "Недопустимый запрос синхронизации SSO.",

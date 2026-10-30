@@ -13,19 +13,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRefundBillingTraceReturnsGoneWithoutDatabaseAccess(t *testing.T) {
+func TestRefundBillingTraceValidatesRequestAndReachesRestoredService(t *testing.T) {
 	originalDB, originalLogDB := model.DB, model.LOG_DB
 	model.DB, model.LOG_DB = nil, nil
 	t.Cleanup(func() { model.DB, model.LOG_DB = originalDB, originalLogDB })
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.POST("/api/billing/traces/:trace_id/refund", RefundBillingTrace)
-	for _, body := range []string{`{"source":"MANUAL","reason":"failed"}`, `{invalid-json`} {
-		request := httptest.NewRequest(http.MethodPost, "/api/billing/traces/legacy-trace/refund", strings.NewReader(body))
+	for _, testCase := range []struct {
+		body    string
+		status  int
+		message string
+	}{
+		{`{"source":"MANUAL","reason":"failed"}`, http.StatusOK, "billing database is unavailable"},
+		{``, http.StatusOK, "billing database is unavailable"},
+		{`{invalid-json`, http.StatusBadRequest, "invalid refund request"},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/billing/traces/legacy-trace/refund", strings.NewReader(testCase.body))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, request)
-		require.Equal(t, http.StatusGone, response.Code)
+		require.Equal(t, testCase.status, response.Code)
 		var result struct {
 			Success    bool   `json:"success"`
 			Code       string `json:"code"`
@@ -34,8 +42,8 @@ func TestRefundBillingTraceReturnsGoneWithoutDatabaseAccess(t *testing.T) {
 		}
 		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 		assert.False(t, result.Success)
-		assert.Equal(t, "BILLING_TRACE_REFUND_DISABLED", result.Code)
-		assert.Equal(t, "Billing trace refunds are no longer supported.", result.Message)
-		assert.Equal(t, result.Message, result.MessageKey)
+		assert.Empty(t, result.Code)
+		assert.Equal(t, testCase.message, result.Message)
+		assert.Equal(t, testCase.message, result.MessageKey)
 	}
 }

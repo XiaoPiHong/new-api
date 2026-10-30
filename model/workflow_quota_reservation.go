@@ -91,40 +91,6 @@ type ReserveWorkflowQuotaRequest struct {
 	Items          []WorkflowQuotaReservationItemInput
 }
 
-// GetWorkflowQuotaItemQuote reads the original node quote after checking the
-// reservation's owner. Settlement/refund can change consumption, never this
-// immutable quote. The lookup does not lock rows or adjust any accounting.
-func GetWorkflowQuotaItemQuote(publicId string, itemKey string, userId int, tokenId int) (*WorkflowQuotaReservationItem, error) {
-	if DB == nil {
-		return nil, errors.New("workflow quota database is unavailable")
-	}
-	publicId = strings.TrimSpace(publicId)
-	itemKey = strings.TrimSpace(itemKey)
-	if publicId == "" || userId <= 0 || tokenId <= 0 {
-		return nil, ErrWorkflowQuotaReservationNotFound
-	}
-	if itemKey == "" {
-		return nil, ErrWorkflowQuotaItemNotFound
-	}
-	var reservation WorkflowQuotaReservation
-	if err := DB.Select("id").Where(
-		"public_id = ? AND user_id = ? AND token_id = ?", publicId, userId, tokenId,
-	).First(&reservation).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrWorkflowQuotaReservationNotFound
-		}
-		return nil, err
-	}
-	var item WorkflowQuotaReservationItem
-	if err := DB.Where("reservation_id = ? AND item_key = ?", reservation.Id, itemKey).First(&item).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrWorkflowQuotaItemNotFound
-		}
-		return nil, err
-	}
-	return &item, nil
-}
-
 // ReserveWorkflowQuota 原子完成用户钱包、Token 额度扣减和预占单写入。
 // BATCH_UPDATE_ENABLED 会让数据库额度短暂落后于缓存，无法满足跨进程原子预占，因此明确拒绝。
 func ReserveWorkflowQuota(input ReserveWorkflowQuotaRequest) (*WorkflowQuotaReservation, bool, error) {

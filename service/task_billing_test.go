@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -60,6 +62,7 @@ func TestMain(m *testing.M) {
 		&model.UserSubscription{},
 		&model.WorkflowQuotaReservation{},
 		&model.WorkflowQuotaReservationItem{},
+		&model.BillingTraceRefund{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
 	); err != nil {
@@ -76,6 +79,7 @@ func TestMain(m *testing.M) {
 func truncate(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
+		model.DB.Exec("DELETE FROM billing_trace_refunds")
 		model.DB.Exec("DELETE FROM workflow_quota_reservation_items")
 		model.DB.Exec("DELETE FROM workflow_quota_reservations")
 		model.DB.Exec("DELETE FROM tasks")
@@ -962,37 +966,19 @@ func TestWorkflowTaskRefundAdjustsReservationBeforeWalletRelease(t *testing.T) {
 	assert.Equal(t, reservation.PublicId, other["workflow_quota_reservation_id"])
 	summary, err := GetBillingTraceSummary(task.BillingTraceId)
 	require.NoError(t, err)
-	require.NotNil(t, summary.WorkflowQuotaItem)
-	assert.Equal(t, reservation.PublicId, summary.WorkflowQuotaItem.ReservationID)
-	assert.Equal(t, "node", summary.WorkflowQuotaItem.ItemKey)
-	assert.Equal(t, 100, summary.WorkflowQuotaItem.QuotedQuota)
-	quote, err := model.GetWorkflowQuotaItemQuote(reservation.PublicId, "node", 31, 31)
-	require.NoError(t, err)
-	assert.Zero(t, quote.ConsumedQuota)
-	assert.Equal(t, 100, quote.QuotedQuota)
-	for _, owner := range []struct{ userID, tokenID int }{{32, 31}, {31, 32}} {
-		_, err := model.GetWorkflowQuotaItemQuote(reservation.PublicId, "node", owner.userID, owner.tokenID)
-		require.ErrorIs(t, err, model.ErrWorkflowQuotaReservationNotFound)
-	}
-	// A log cannot use another owner's reservation to publish a quote.
-	require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("id = ?", log.Id).Update("token_id", 32).Error)
-	summary, err = GetBillingTraceSummary(task.BillingTraceId)
-	require.NoError(t, err)
-	assert.Nil(t, summary.WorkflowQuotaItem)
 	assert.Equal(t, 80, summary.RefundQuota)
-	require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("id = ?", log.Id).Update("token_id", 31).Error)
+	var item model.WorkflowQuotaReservationItem
+	require.NoError(t, model.DB.Where("reservation_id = ? AND item_key = ?", reservation.Id, "node").First(&item).Error)
+	assert.Zero(t, item.ConsumedQuota)
+	assert.Equal(t, 100, item.QuotedQuota)
 	_, _, err = model.ReleaseWorkflowQuotaReservation(reservation.PublicId, 31, 31, true)
 	require.NoError(t, err)
-	summary, err = GetBillingTraceSummary(task.BillingTraceId)
-	require.NoError(t, err)
-	require.NotNil(t, summary.WorkflowQuotaItem)
-	assert.Equal(t, 100, summary.WorkflowQuotaItem.QuotedQuota)
 	assert.Equal(t, 1000, getUserQuota(t, 31))
 	assert.Equal(t, 1000, getTokenRemainQuota(t, 31))
 	assert.Zero(t, getTokenUsedQuota(t, 31))
 }
 
-func TestRefundBillingTraceDisabledDoesNotChangeAccounting(t *testing.T) {
+func TestRefundBillingTraceIsDurableAndDoesNotDoubleRefund(t *testing.T) {
 	tests := []struct {
 		name          string
 		billingSource string
@@ -1009,11 +995,13 @@ func TestRefundBillingTraceDisabledDoesNotChangeAccounting(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			truncate(t)
 			const ownerID = 32
-			const traceID = "retired-trace-refund"
+			const traceID = "restored-trace-refund"
+			reservationID := ""
 			other := model.NewLogOther()
 			other.SetPublic("billing_source", testCase.billingSource)
 			if testCase.billingSource == BillingSourceWorkflowReservation {
 				reservation := seedWorkflowReservation(t, ownerID)
+				reservationID = reservation.PublicId
 				require.NoError(t, model.ClaimWorkflowQuotaItem(reservation.PublicId, "node", ownerID, ownerID, 80, "trace-request"))
 				require.NoError(t, model.SettleWorkflowQuotaItem(reservation.PublicId, "node", ownerID, ownerID, 80))
 				other.SetPublic("workflow_quota_reservation_id", reservation.PublicId)
@@ -1033,6 +1021,7 @@ func TestRefundBillingTraceDisabledDoesNotChangeAccounting(t *testing.T) {
 			}
 			if testCase.hasTask {
 				task := makeTask(ownerID, ownerID, testCase.taskQuota, ownerID, testCase.billingSource, 0)
+				task.Status = model.TaskStatusFailure
 				task.BillingTraceId = traceID
 				task.PrivateData.BillingTraceId = traceID
 				require.NoError(t, model.DB.Create(task).Error)
@@ -1044,45 +1033,320 @@ func TestRefundBillingTraceDisabledDoesNotChangeAccounting(t *testing.T) {
 			beforeSummary, err := GetBillingTraceSummary(traceID)
 			require.NoError(t, err)
 			require.Equal(t, 80, beforeSummary.FinalQuota)
-			accountingSnapshot := func() map[string]any {
-				state := make(map[string]any)
-				for _, table := range []string{
-					"users", "tokens", "channels", "tasks", "user_subscriptions",
-					"workflow_quota_reservations", "workflow_quota_reservation_items",
-				} {
-					var rows []map[string]any
-					require.NoError(t, model.DB.Table(table).Order("id").Find(&rows).Error)
-					state[table] = rows
-				}
-				var logs []model.Log
-				require.NoError(t, model.LOG_DB.Order("id").Find(&logs).Error)
-				state["logs"] = logs
-				return state
-			}
-			beforeAccounting := accountingSnapshot()
-			for range 2 {
-				summary, refunded, err := RefundBillingTrace(context.Background(), traceID, "MANUAL", "fixture", "failed")
-				require.ErrorIs(t, err, ErrBillingTraceRefundDisabled)
-				assert.Nil(t, summary)
-				assert.False(t, refunded)
-			}
-			assert.Equal(t, beforeAccounting, accountingSnapshot())
+			summary, refunded, err := RefundBillingTrace(context.Background(), traceID, "MANUAL", "fixture", "failed")
+			require.NoError(t, err)
+			assert.Equal(t, !testCase.hasTask || testCase.taskQuota > 0, refunded)
+			assert.Zero(t, summary.FinalQuota)
+			// Delete both the task and refund logs: a receipt must still prevent
+			// the legacy consume-log path from paying the same trace again.
+			require.NoError(t, model.DB.Where("billing_trace_id = ?", traceID).Delete(&model.Task{}).Error)
+			require.NoError(t, model.LOG_DB.Where("billing_trace_id = ? AND type = ?", traceID, model.LogTypeRefund).Delete(&model.Log{}).Error)
+			summary, refunded, err = RefundBillingTrace(context.Background(), traceID, "MANUAL", "fixture", "retry")
+			require.NoError(t, err)
+			assert.False(t, refunded)
+			assert.Zero(t, summary.FinalQuota)
 			afterSummary, err := GetBillingTraceSummary(traceID)
 			require.NoError(t, err)
-			assert.Equal(t, beforeSummary, afterSummary)
+			assert.Zero(t, afterSummary.FinalQuota)
+			if reservationID != "" {
+				assert.Equal(t, 700, getUserQuota(t, ownerID))
+				assert.Equal(t, 700, getTokenRemainQuota(t, ownerID))
+				for range 2 {
+					_, _, err := model.ReleaseWorkflowQuotaReservation(reservationID, ownerID, ownerID, true)
+					require.NoError(t, err)
+				}
+				assert.Equal(t, 1000, getUserQuota(t, ownerID))
+				assert.Equal(t, 1000, getTokenRemainQuota(t, ownerID))
+			} else if testCase.hasTask && testCase.taskQuota == 0 {
+				assert.Equal(t, 920, getUserQuota(t, ownerID))
+				assert.Equal(t, 920, getTokenRemainQuota(t, ownerID))
+			} else {
+				assert.Equal(t, 1000, getUserQuota(t, ownerID))
+				assert.Equal(t, 1000, getTokenRemainQuota(t, ownerID))
+				assert.Zero(t, getTokenUsedQuota(t, ownerID))
+				if testCase.billingSource == BillingSourceSubscription {
+					assert.Zero(t, getSubscriptionUsed(t, ownerID))
+				}
+			}
 		})
 	}
 }
 
-func TestRefundBillingTraceDisabledWithoutDatabaseAccess(t *testing.T) {
+func TestRefundBillingTraceRejectsMissingDatabaseOrTrace(t *testing.T) {
 	originalDB, originalLogDB := model.DB, model.LOG_DB
 	model.DB, model.LOG_DB = nil, nil
 	t.Cleanup(func() { model.DB, model.LOG_DB = originalDB, originalLogDB })
 	for _, traceID := range []string{"", "missing-trace"} {
 		summary, refunded, err := RefundBillingTrace(context.Background(), traceID, "MANUAL", "fixture", "failed")
-		require.ErrorIs(t, err, ErrBillingTraceRefundDisabled)
+		require.Error(t, err)
 		assert.Nil(t, summary)
 		assert.False(t, refunded)
+	}
+}
+
+func TestTraceRefundSerializesAutomaticRefundAndLateSettlement(t *testing.T) {
+	truncate(t)
+	const ownerID = 36
+	seedUser(t, ownerID, 920)
+	seedToken(t, ownerID, ownerID, "trace-refund-race-token", 920)
+	seedChannel(t, ownerID)
+	seedChargedAccounting(t, ownerID, ownerID, ownerID, 80, 1)
+	task := makeTask(ownerID, ownerID, 80, ownerID, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusFailure
+	task.BillingTraceId = "task-refund-race"
+	require.NoError(t, model.DB.Create(task).Error)
+	seedTraceConsumeLog(t, task)
+	stale := *task
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	go func() {
+		<-start
+		_, _, err := RefundBillingTrace(context.Background(), task.BillingTraceId, "MANUAL", "fixture", "failed")
+		results <- err
+	}()
+	go func() {
+		<-start
+		if !RefundTaskQuota(context.Background(), task, "automatic failure") {
+			results <- errors.New("automatic refund failed")
+			return
+		}
+		results <- nil
+	}()
+	close(start)
+	for range 2 {
+		require.NoError(t, <-results)
+	}
+	assert.Equal(t, 1000, getUserQuota(t, ownerID))
+	assert.Equal(t, 1000, getTokenRemainQuota(t, ownerID))
+	assert.Zero(t, getTokenUsedQuota(t, ownerID))
+	assert.EqualValues(t, 2, countLogs(t))
+	// A late save can overwrite the JSON marker; the permanent receipt still
+	// blocks both a late final settlement and another automatic refund.
+	require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", task.ID).
+		Updates(map[string]any{"quota": 80, "private_data": stale.PrivateData}).Error)
+	RecalculateTaskQuota(context.Background(), &stale, 120, common.NewMessage("late settlement"))
+	assert.Zero(t, getTaskQuota(t, task.ID))
+	assert.Equal(t, 1000, getUserQuota(t, ownerID))
+	assert.True(t, RefundTaskQuota(context.Background(), &stale, "late automatic refund"))
+	assert.Equal(t, 1000, getTokenRemainQuota(t, ownerID))
+	assert.EqualValues(t, 2, countLogs(t))
+}
+
+func TestTraceRefundSurvivesLogWriteFailure(t *testing.T) {
+	truncate(t)
+	const ownerID = 37
+	seedUser(t, ownerID, 920)
+	seedToken(t, ownerID, ownerID, "trace-refund-log-failure-token", 920)
+	seedChannel(t, ownerID)
+	seedChargedAccounting(t, ownerID, ownerID, ownerID, 80, 1)
+	other := model.NewLogOther()
+	other.SetPublic("billing_source", BillingSourceWallet)
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+		UserId: ownerID, TokenId: ownerID, ChannelId: ownerID, LogType: model.LogTypeConsume,
+		Quota: 80, BillingTraceId: "log-write-failure", Other: other,
+	})
+	const callback = "trace_refund_reject_log"
+	require.NoError(t, model.LOG_DB.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "logs" {
+			tx.AddError(errors.New("simulated log write failure"))
+		}
+	}))
+	t.Cleanup(func() { model.LOG_DB.Callback().Create().Remove(callback) })
+	type result struct {
+		summary *BillingTraceSummary
+		changed bool
+		err     error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for range 2 {
+		go func() {
+			<-start
+			summary, changed, err := RefundBillingTrace(context.Background(), "log-write-failure", "MANUAL", "fixture", "failed")
+			results <- result{summary, changed, err}
+		}()
+	}
+	close(start)
+	paid := 0
+	for range 2 {
+		result := <-results
+		require.NoError(t, result.err)
+		assert.Zero(t, result.summary.FinalQuota)
+		if result.changed {
+			paid++
+		}
+	}
+	assert.Equal(t, 1, paid)
+	summary, changed, err := RefundBillingTrace(context.Background(), "log-write-failure", "MANUAL", "fixture", "retry")
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Zero(t, summary.FinalQuota)
+	assert.Equal(t, 1000, getUserQuota(t, ownerID))
+	assert.Equal(t, 1000, getTokenRemainQuota(t, ownerID))
+	assert.EqualValues(t, 1, countLogs(t)) // only the original consume log
+}
+
+func TestTraceRefundRollsBackWhenReceiptOrTokenUpdateFails(t *testing.T) {
+	for _, failReceipt := range []bool{false, true} {
+		t.Run(fmt.Sprint("receipt failure=", failReceipt), func(t *testing.T) {
+			truncate(t)
+			const ownerID = 38
+			seedUser(t, ownerID, 920)
+			seedToken(t, ownerID, ownerID, "trace-refund-rollback-token", 920)
+			seedChannel(t, ownerID)
+			seedChargedAccounting(t, ownerID, ownerID, ownerID, 80, 1)
+			task := makeTask(ownerID, ownerID, 80, ownerID, BillingSourceWallet, 0)
+			task.Status = model.TaskStatusFailure
+			task.BillingTraceId = "refund-rollback"
+			require.NoError(t, model.DB.Create(task).Error)
+			seedTraceConsumeLog(t, task)
+			if failReceipt {
+				const callback = "trace_refund_reject_receipt"
+				require.NoError(t, model.DB.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
+					if tx.Statement.Table == "billing_trace_refunds" {
+						tx.AddError(errors.New("simulated receipt failure"))
+					}
+				}))
+				t.Cleanup(func() { model.DB.Callback().Create().Remove(callback) })
+			} else {
+				require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", ownerID).Update("used_quota", 0).Error)
+			}
+			_, changed, err := RefundBillingTrace(context.Background(), task.BillingTraceId, "MANUAL", "fixture", "failed")
+			require.Error(t, err)
+			assert.False(t, changed)
+			assert.Equal(t, 920, getUserQuota(t, ownerID))
+			assert.Equal(t, 920, getTokenRemainQuota(t, ownerID))
+			assert.Equal(t, 80, getTaskQuota(t, task.ID))
+			assert.EqualValues(t, 80, getChannelUsedQuota(t, ownerID))
+			receipt, err := model.GetBillingTraceRefund(task.BillingTraceId)
+			require.NoError(t, err)
+			assert.Nil(t, receipt)
+		})
+	}
+}
+
+func TestTraceRefundRejectsRunningTasksAndClosedReservations(t *testing.T) {
+	truncate(t)
+	reservation := seedWorkflowReservation(t, 39)
+	require.NoError(t, model.ClaimWorkflowQuotaItem(reservation.PublicId, "node", 39, 39, 80, "closed-trace"))
+	require.NoError(t, model.SettleWorkflowQuotaItem(reservation.PublicId, "node", 39, 39, 80))
+	seedChargedAccounting(t, 39, 39, 0, 80, 1)
+	task := makeTask(39, 39, 80, 39, BillingSourceWorkflowReservation, 0)
+	task.BillingTraceId = "closed-trace"
+	task.PrivateData.WorkflowQuotaReservationId = reservation.PublicId
+	task.PrivateData.WorkflowQuotaItemKey = "node"
+	require.NoError(t, model.DB.Create(task).Error)
+	seedTraceConsumeLog(t, task)
+	_, _, err := RefundBillingTrace(context.Background(), task.BillingTraceId, "MANUAL", "fixture", "running")
+	require.ErrorIs(t, err, model.ErrBillingRefundPending)
+	_, _, err = model.ReleaseWorkflowQuotaReservation(reservation.PublicId, 39, 39, true)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Model(task).Update("status", model.TaskStatusFailure).Error)
+	_, _, err = RefundBillingTrace(context.Background(), task.BillingTraceId, "MANUAL", "fixture", "already released")
+	require.ErrorIs(t, err, model.ErrWorkflowQuotaReservationClosed)
+	assert.Equal(t, 1000, getUserQuota(t, 39))
+	assert.Equal(t, 1000, getTokenRemainQuota(t, 39))
+}
+
+func seedTraceConsumeLog(t *testing.T, task *model.Task) {
+	t.Helper()
+	other := taskBillingOther(task)
+	other.SetPublic("billing_source", task.PrivateData.BillingSource)
+	require.NoError(t, model.LOG_DB.Create(&model.Log{
+		UserId: task.UserId, TokenId: task.PrivateData.TokenId, ChannelId: task.ChannelId,
+		Type: model.LogTypeConsume, Quota: task.Quota, BillingTraceId: task.BillingTraceId,
+		Other: other.JSONString(),
+	}).Error)
+}
+
+func TestTraceRefundWaitsForInitialSettlementOfTerminalTask(t *testing.T) {
+	truncate(t)
+	seedUser(t, 42, 920)
+	seedToken(t, 42, 42, "trace-refund-not-ready-token", 920)
+	seedChannel(t, 42)
+	seedChargedAccounting(t, 42, 42, 42, 80, 1)
+	task := makeTask(42, 42, 80, 42, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusSuccess
+	task.BillingTraceId = "terminal-before-settlement"
+	require.NoError(t, model.DB.Create(task).Error)
+	_, changed, err := RefundBillingTrace(context.Background(), task.BillingTraceId, "MANUAL", "fixture", "too early")
+	require.ErrorIs(t, err, model.ErrBillingRefundPending)
+	assert.False(t, changed)
+	assert.Equal(t, 920, getUserQuota(t, 42))
+	assert.Equal(t, 80, getTaskQuota(t, task.ID))
+}
+
+func TestTraceRefundKeepsGrossConsumptionAfterPartialSettlementRefund(t *testing.T) {
+	truncate(t)
+	const ownerID = 40
+	seedUser(t, ownerID, 900)
+	seedToken(t, ownerID, ownerID, "trace-refund-partial-token", 900)
+	seedChannel(t, ownerID)
+	seedChargedAccounting(t, ownerID, ownerID, ownerID, 100, 1)
+	task := makeTask(ownerID, ownerID, 100, ownerID, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusSuccess
+	task.BillingTraceId = "partial-then-full-refund"
+	require.NoError(t, model.DB.Create(task).Error)
+	other := model.NewLogOther()
+	other.SetPublic("billing_source", BillingSourceWallet)
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+		UserId: ownerID, TokenId: ownerID, ChannelId: ownerID,
+		LogType: model.LogTypeConsume, Quota: 100, BillingTraceId: task.BillingTraceId, Other: other,
+	})
+	RecalculateTaskQuota(context.Background(), task, 80, common.NewMessage("settlement"))
+	assert.Equal(t, 920, getUserQuota(t, ownerID))
+	summary, changed, err := RefundBillingTrace(context.Background(), task.BillingTraceId, "MANUAL", "fixture", "failed")
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.Equal(t, 100, summary.ConsumeQuota)
+	assert.Equal(t, 100, summary.RefundQuota)
+	assert.Zero(t, summary.FinalQuota)
+	assert.Equal(t, 1000, getUserQuota(t, ownerID))
+	summary, err = GetBillingTraceSummary(task.BillingTraceId)
+	require.NoError(t, err)
+	assert.Equal(t, 100, summary.ConsumeQuota)
+	assert.Equal(t, 100, summary.RefundQuota)
+}
+
+func TestTraceRefundRejectsAmbiguousLogFunding(t *testing.T) {
+	for _, invalid := range []string{"missing source", "mixed owner", "invalid subscription", "negative quota", "task without row"} {
+		t.Run(invalid, func(t *testing.T) {
+			truncate(t)
+			const ownerID = 41
+			seedUser(t, ownerID, 920)
+			seedToken(t, ownerID, ownerID, "trace-refund-invalid-token", 920)
+			seedChannel(t, ownerID)
+			seedChargedAccounting(t, ownerID, ownerID, ownerID, 80, 1)
+			other := model.NewLogOther()
+			if invalid != "missing source" {
+				other.SetPublic("billing_source", BillingSourceWallet)
+			}
+			if invalid == "invalid subscription" {
+				other.SetPublic("billing_source", BillingSourceSubscription)
+			}
+			if invalid == "task without row" {
+				other.SetPublic("task_id", "deleted-task")
+			}
+			quota := 80
+			if invalid == "negative quota" {
+				quota = -80
+			}
+			model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+				UserId: ownerID, TokenId: ownerID, ChannelId: ownerID,
+				LogType: model.LogTypeConsume, Quota: quota, BillingTraceId: "invalid-trace", Other: other,
+			})
+			if invalid == "mixed owner" {
+				model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+					UserId: ownerID + 1, TokenId: ownerID, ChannelId: ownerID,
+					LogType: model.LogTypeConsume, Quota: 1, BillingTraceId: "invalid-trace", Other: other,
+				})
+			}
+			_, changed, err := RefundBillingTrace(context.Background(), "invalid-trace", "MANUAL", "fixture", "failed")
+			require.ErrorIs(t, err, model.ErrBillingRefundConflict)
+			assert.False(t, changed)
+			assert.Equal(t, 920, getUserQuota(t, ownerID))
+			assert.Equal(t, 920, getTokenRemainQuota(t, ownerID))
+		})
 	}
 }
 

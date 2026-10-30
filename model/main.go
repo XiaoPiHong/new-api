@@ -373,6 +373,7 @@ func migrateDB() error {
 		// 工作流额度预占使用独立表，不修改现有用户、Token 和普通计费表结构。
 		&WorkflowQuotaReservation{},
 		&WorkflowQuotaReservationItem{},
+		&BillingTraceRefund{},
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},

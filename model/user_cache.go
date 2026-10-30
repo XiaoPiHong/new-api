@@ -67,11 +67,11 @@ func invalidateUserCache(userId int) error {
 	return common.RedisDelKey(getUserCacheKey(userId))
 }
 
-func populateUserCache(user User) error {
+func populateUserCache(user User, quotaEpoch ...string) error {
 	if !common.RedisEnabled {
 		return nil
 	}
-	return writeUserCache(user.ToBaseUser(), true)
+	return writeUserCache(user.ToBaseUser(), true, quotaEpoch...)
 }
 
 // updateUserCache refreshes non-quota user cache fields.
@@ -95,6 +95,11 @@ func GetUserCache(userId int) (*UserBase, error) {
 	// Redis misses and read failures both fall back to the shared database. A
 	// version fence newer than the database is the one exception: allowing that
 	// snapshot would re-authorize a user while a restrictive update is pending.
+	quotaEpoch, epochErr := readBillingQuotaEpoch(getUserCacheKey(userId))
+	if epochErr != nil {
+		// An unobserved epoch must never authorize publishing this snapshot.
+		quotaEpoch = "unavailable"
+	}
 	user, err := GetUserById(userId, false)
 	if err != nil {
 		return nil, err
@@ -104,7 +109,7 @@ func GetUserCache(userId int) (*UserBase, error) {
 		if floorErr == nil && floor > user.AuthVersion {
 			return nil, ErrUserAuthCachePending
 		}
-		if err := populateUserCache(*user); err != nil {
+		if err := populateUserCache(*user, quotaEpoch); err != nil {
 			if errors.Is(err, ErrUserAuthCachePending) {
 				return nil, err
 			}

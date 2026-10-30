@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Historical billing refund status is unknown. Reconcile this trace before refunding.": "Historical billing refund status is unknown. Reconcile this trace before refunding.",
     "Billing trace refund": "Billing trace refund",
     "billing refund accounting conflict": "billing refund accounting conflict",
     "Task billing is not complete. Retry the refund later.": "Task billing is not complete. Retry the refund later.",

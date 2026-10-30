@@ -10,10 +10,15 @@ import (
 )
 
 var (
-	ErrBillingRefundConflict    = errors.New("billing refund accounting conflict")
-	ErrBillingRefundPending     = errors.New("Task billing is not complete. Retry the refund later.")
-	ErrBillingRefundBatchUpdate = errors.New("manual billing refunds require batch update disabled")
+	ErrBillingRefundConflict       = errors.New("billing refund accounting conflict")
+	ErrBillingRefundReconciliation = errors.New("Historical billing refund status is unknown. Reconcile this trace before refunding.")
+	ErrBillingRefundPending        = errors.New("Task billing is not complete. Retry the refund later.")
+	ErrBillingRefundBatchUpdate    = errors.New("manual billing refunds require batch update disabled")
 )
+
+// BillingRefundReceiptProtocol identifies consumption written by a gateway
+// whose trace refunds always commit a permanent primary-database receipt.
+const BillingRefundReceiptProtocol = "receipt_v1"
 
 // BillingTraceRefund is an accounting receipt, not a usage log. It lives in the
 // primary database so deleting/failing the separate log database cannot make a
@@ -349,4 +354,3 @@ func applyBillingQuotaDelta(tx *gorm.DB, userID, tokenID, channelID int, source 
 	}
 	return nil
 }
-

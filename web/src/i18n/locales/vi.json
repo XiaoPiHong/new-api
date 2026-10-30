@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Historical billing refund status is unknown. Reconcile this trace before refunding.": "Không xác định được trạng thái hoàn tiền của giao dịch cũ. Hãy đối soát chuỗi tính phí này trước khi hoàn tiền.",
     "Billing trace refund": "Hoàn tiền theo mã truy vết thanh toán",
     "billing refund accounting conflict": "Xung đột trạng thái hạch toán hoàn tiền",
     "Task billing is not complete. Retry the refund later.": "Tác vụ chưa được quyết toán xong. Vui lòng thử hoàn tiền lại sau.",

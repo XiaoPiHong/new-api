@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Historical billing refund status is unknown. Reconcile this trace before refunding.": "Статус возврата по старому списанию неизвестен. Перед возвратом выполните сверку этой цепочки списаний.",
     "Billing trace refund": "Возврат по идентификатору операции биллинга",
     "billing refund accounting conflict": "Конфликт состояния учёта возврата",
     "Task billing is not complete. Retry the refund later.": "Расчёт стоимости задачи ещё не завершён. Повторите возврат позже.",

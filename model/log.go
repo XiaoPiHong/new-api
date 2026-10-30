@@ -368,6 +368,12 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	billingTraceId := GetBillingTraceId(c)
 	createdAt := common.GetTimestamp()
 	other := params.Other
+	if billingTraceId != "" {
+		if other == nil {
+			other = NewLogOther()
+		}
+		other.SetAdmin("billing_refund_protocol", BillingRefundReceiptProtocol)
+	}
 	content := other.setContent(params.Content)
 	otherStr := other.JSONString()
 	// 判断是否需要记录 IP
@@ -460,6 +466,12 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 	createdAt := common.GetTimestamp()
 	other := params.Other
+	if params.LogType == LogTypeConsume && params.BillingTraceId != "" {
+		if other == nil {
+			other = NewLogOther()
+		}
+		other.SetAdmin("billing_refund_protocol", BillingRefundReceiptProtocol)
+	}
 	log := &Log{
 		UserId:         params.UserId,
 		Username:       username,

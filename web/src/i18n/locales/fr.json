@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Historical billing refund status is unknown. Reconcile this trace before refunding.": "Le statut du remboursement historique est inconnu. Vérifiez les comptes de cette trace avant de rembourser.",
     "Billing trace refund": "Remboursement par trace de facturation",
     "billing refund accounting conflict": "Conflit dans l’état comptable du remboursement",
     "Task billing is not complete. Retry the refund later.": "La facturation de la tâche n’est pas terminée. Réessayez le remboursement plus tard.",

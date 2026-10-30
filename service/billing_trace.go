@@ -188,6 +188,7 @@ func RefundBillingTrace(ctx context.Context, traceId string, source string, oper
 	var base *model.Log
 	var identity traceRefundFunding
 	consume, refunded := 0, 0
+	requiresReconciliation := false
 	for _, entry := range logs {
 		if entry.Type != model.LogTypeConsume && entry.Type != model.LogTypeRefund {
 			continue
@@ -205,10 +206,16 @@ func RefundBillingTrace(ctx context.Context, traceId string, source string, oper
 		if entry.Quota == 0 {
 			continue
 		}
-		var funding traceRefundFunding
-		if err := common.UnmarshalJsonStr(entry.Other, &funding); err != nil || funding.IsTask || funding.TaskId != "" {
+		var metadata struct {
+			traceRefundFunding
+			AdminInfo struct {
+				RefundProtocol string `json:"billing_refund_protocol"`
+			} `json:"admin_info"`
+		}
+		if err := common.UnmarshalJsonStr(entry.Other, &metadata); err != nil || metadata.IsTask || metadata.TaskId != "" {
 			return nil, false, model.ErrBillingRefundConflict
 		}
+		funding := metadata.traceRefundFunding
 		// Unknown/missing funding cannot safely be guessed to be a wallet.
 		switch funding.BillingSource {
 		case BillingSourceWallet:
@@ -226,6 +233,13 @@ func RefundBillingTrace(ctx context.Context, traceId string, source string, oper
 		default:
 			return nil, false, model.ErrBillingRefundConflict
 		}
+		// Historical wallet/subscription logs cannot prove that an earlier
+		// refund log was not lost. Only consumption from the receipt protocol
+		// may start a new log-only refund. Workflow items have authoritative
+		// state in the primary database and are checked in the transaction.
+		if funding.BillingSource != BillingSourceWorkflowReservation && metadata.AdminInfo.RefundProtocol != model.BillingRefundReceiptProtocol {
+			requiresReconciliation = true
+		}
 		if base == nil {
 			base, identity = entry, funding
 		} else if base.UserId != entry.UserId || base.TokenId != entry.TokenId || base.ChannelId != entry.ChannelId || identity != funding {
@@ -238,6 +252,9 @@ func RefundBillingTrace(ctx context.Context, traceId string, source string, oper
 	}
 	if base == nil || consume <= refunded {
 		return summary, false, nil
+	}
+	if requiresReconciliation {
+		return nil, false, model.ErrBillingRefundReconciliation
 	}
 	for _, entry := range logs {
 		if entry.Type == model.LogTypeRefund && (entry.UserId != base.UserId || entry.TokenId != base.TokenId || entry.ChannelId != base.ChannelId) {

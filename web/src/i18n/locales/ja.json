@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Historical billing refund status is unknown. Reconcile this trace before refunding.": "過去の請求の返金状況を確認できません。返金前にこの課金トレースを照合してください。",
     "Billing trace refund": "請求トレースの返金",
     "billing refund accounting conflict": "返金の会計状態に不整合があります",
     "Task billing is not complete. Retry the refund later.": "タスクの精算が完了していません。後ほど返金を再試行してください。",

@@ -987,9 +987,9 @@ func TestRefundBillingTraceIsDurableAndDoesNotDoubleRefund(t *testing.T) {
 	}{
 		{name: "task-backed wallet", billingSource: BillingSourceWallet, hasTask: true, taskQuota: 80},
 		{name: "zero task with remaining consume log", billingSource: BillingSourceWallet, hasTask: true},
-		{name: "legacy wallet consume log", billingSource: BillingSourceWallet},
-		{name: "legacy subscription consume log", billingSource: BillingSourceSubscription},
-		{name: "workflow reservation consume log", billingSource: BillingSourceWorkflowReservation},
+		{name: "new wallet consume log", billingSource: BillingSourceWallet},
+		{name: "new subscription consume log", billingSource: BillingSourceSubscription},
+		{name: "historical workflow reservation consume log", billingSource: BillingSourceWorkflowReservation},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1026,10 +1026,23 @@ func TestRefundBillingTraceIsDurableAndDoesNotDoubleRefund(t *testing.T) {
 				task.PrivateData.BillingTraceId = traceID
 				require.NoError(t, model.DB.Create(task).Error)
 			}
-			model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-				UserId: ownerID, TokenId: ownerID, ChannelId: ownerID, LogType: model.LogTypeConsume, Quota: 80,
-				ModelName: "test-model", BillingTraceId: traceID, Other: other,
-			})
+			if testCase.hasTask || reservationID != "" {
+				// These historical traces have an authoritative task/item and
+				// remain refundable without a protocol marker in the old log.
+				require.NoError(t, model.LOG_DB.Create(&model.Log{
+					UserId: ownerID, TokenId: ownerID, ChannelId: ownerID, Type: model.LogTypeConsume, Quota: 80,
+					ModelName: "test-model", BillingTraceId: traceID, Other: other.JSONString(),
+				}).Error)
+			} else {
+				t.Setenv("BILLING_TRACE_SECRET", "refund-test-only")
+				ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+				ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				ctx.Request.Header.Set(common.BillingTraceSecretKey, "refund-test-only")
+				ctx.Request.Header.Set(common.BillingTraceIdKey, traceID)
+				model.RecordConsumeLog(ctx, ownerID, model.RecordConsumeLogParams{
+					TokenId: ownerID, ChannelId: ownerID, Quota: 80, ModelName: "test-model", Other: other,
+				})
+			}
 			beforeSummary, err := GetBillingTraceSummary(traceID)
 			require.NoError(t, err)
 			require.Equal(t, 80, beforeSummary.FinalQuota)
@@ -1068,6 +1081,77 @@ func TestRefundBillingTraceIsDurableAndDoesNotDoubleRefund(t *testing.T) {
 					assert.Zero(t, getSubscriptionUsed(t, ownerID))
 				}
 			}
+		})
+	}
+}
+
+func TestRefundBillingTraceRequiresReconciliationForHistoricalLogs(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		other        string
+		mixed        bool
+		subscription bool
+	}{
+		{name: "lost historical wallet refund", other: `{"billing_source":"wallet"}`},
+		{name: "lost historical subscription refund", other: `{"billing_source":"subscription","subscription_id":52}`, subscription: true},
+		{name: "old and new consumption share a trace", other: `{"billing_source":"wallet"}`, mixed: true},
+		{name: "public metadata cannot authorize refund", other: `{"billing_source":"wallet","billing_refund_protocol":"receipt_v1"}`},
+		{name: "unknown refund protocol", other: `{"billing_source":"wallet","admin_info":{"billing_refund_protocol":"receipt_v0"}}`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			truncate(t)
+			const ownerID = 52
+			const traceID = "historical-already-refunded"
+			usedQuota := 80
+			if testCase.mixed {
+				usedQuota += 40
+			}
+			walletQuota := 1000 - usedQuota
+			if testCase.subscription {
+				walletQuota = 1000
+			}
+			seedUser(t, ownerID, walletQuota)
+			seedToken(t, ownerID, ownerID, "historical-receiptless-token", 1000-usedQuota)
+			seedChannel(t, ownerID)
+			seedChargedAccounting(t, ownerID, ownerID, ownerID, usedQuota, 1)
+			if testCase.subscription {
+				seedSubscription(t, ownerID, ownerID, 1000, 80)
+			}
+			// This old charge was refunded before permanent receipts existed;
+			// its refund log is lost. Only a later unrelated charge remains in
+			// the wallet/token/channel used totals, so balances cannot authorize it.
+			require.NoError(t, model.LOG_DB.Create(&model.Log{
+				UserId: ownerID, TokenId: ownerID, ChannelId: ownerID,
+				Type: model.LogTypeConsume, Quota: 80, BillingTraceId: traceID, Other: testCase.other,
+			}).Error)
+			other := model.NewLogOther()
+			other.SetPublic("billing_source", BillingSourceWallet)
+			if testCase.subscription {
+				other.SetPublic("billing_source", BillingSourceSubscription)
+				other.SetPublic("subscription_id", ownerID)
+			}
+			model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+				UserId: ownerID, TokenId: ownerID, ChannelId: ownerID,
+				LogType: model.LogTypeConsume, Quota: 80, BillingTraceId: "later-unrelated-charge", Other: other,
+			})
+			if testCase.mixed {
+				model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+					UserId: ownerID, TokenId: ownerID, ChannelId: ownerID,
+					LogType: model.LogTypeConsume, Quota: 40, BillingTraceId: traceID, Other: other,
+				})
+			}
+			_, changed, err := RefundBillingTrace(context.Background(), traceID, "MANUAL", "fixture", "old refund retry")
+			require.ErrorIs(t, err, model.ErrBillingRefundReconciliation)
+			assert.False(t, changed)
+			assert.Equal(t, walletQuota, getUserQuota(t, ownerID))
+			assert.Equal(t, 1000-usedQuota, getTokenRemainQuota(t, ownerID))
+			assert.EqualValues(t, usedQuota, getChannelUsedQuota(t, ownerID))
+			if testCase.subscription {
+				assert.EqualValues(t, 80, getSubscriptionUsed(t, ownerID))
+			}
+			receipt, err := model.GetBillingTraceRefund(traceID)
+			require.NoError(t, err)
+			assert.Nil(t, receipt)
 		})
 	}
 }

@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Historical billing refund status is unknown. Reconcile this trace before refunding.": "歷史帳單的退款狀態無法確認，請先核對該計費鏈路再退款。",
     "Billing trace refund": "帳單追蹤退款",
     "billing refund accounting conflict": "退款帳務狀態衝突",
     "Task billing is not complete. Retry the refund later.": "任務尚未結算完成，請稍後重試退款。",

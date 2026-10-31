@@ -1023,6 +1023,64 @@ func TestConvertRequestByIDExecutesDirectClaudeToResponsesConverter(t *testing.T
 	assert.Equal(t, []types.RelayFormat{types.RelayFormatClaude, types.RelayFormatOpenAIResponses}, info.ConversionChain)
 }
 
+func TestConvertRequestByIDResponsesChatHistoryCompatibilityIsRequestScoped(t *testing.T) {
+	const reasoning = "Check the answer before replying."
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: mustRawMessage(t, []map[string]any{
+			{"role": "user", "content": "First question."},
+			{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": reasoning}}},
+			{"type": "message", "role": "assistant", "content": "First answer."},
+			{"role": "user", "content": "Follow-up question."},
+		}),
+	}
+	originalInput := string(req.Input)
+	enabled := &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: true}}
+	disabled := &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: false}}
+	var typedNil *convmeta.Values
+	tests := []struct {
+		name       string
+		info       convmeta.Meta
+		compatible bool
+	}{
+		{name: "nil meta"},
+		{name: "default meta", info: &convmeta.Values{}},
+		{name: "zero options", info: &convmeta.Values{Options: &convmeta.Options{}}},
+		{name: "explicit false", info: disabled},
+		{name: "enabled", info: enabled, compatible: true},
+		{name: "disabled after enabled", info: disabled},
+		{name: "enabled again", info: enabled, compatible: true},
+		{name: "nil meta after enabled"},
+		{name: "typed nil meta", info: typedNil},
+	}
+	// Reuse the same input across ordered requests so an enabled call cannot
+	// mutate history or leak compatibility into a later caller's defaults.
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ConvertRequestByID(context.Background(), tt.info, ConverterOpenAIResponsesToOpenAIChat, req)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.IsType(t, &dto.GeneralOpenAIRequest{}, result.Value)
+			converted := result.Value.(*dto.GeneralOpenAIRequest)
+			want := []dto.Message{
+				{Role: "user", Content: "First question."},
+				{Role: "user", Content: ""},
+				{Role: "assistant", Content: "First answer."},
+				{Role: "user", Content: "Follow-up question."},
+			}
+			if tt.compatible {
+				want = []dto.Message{
+					{Role: "user", Content: "First question."},
+					{Role: "assistant", Content: "First answer.", ReasoningContent: lo.ToPtr(reasoning)},
+					{Role: "user", Content: "Follow-up question."},
+				}
+			}
+			assert.Equal(t, want, converted.Messages)
+			assert.Equal(t, originalInput, string(req.Input), "conversion must leave replayed history unchanged")
+		})
+	}
+}
+
 func TestConvertRequestRejectsUnsupportedConverterAndNilRequest(t *testing.T) {
 	_, err := ConvertRequestByID(nil, &convmeta.Values{}, "missing_converter", &dto.GeneralOpenAIRequest{Model: "gpt-test"})
 	require.Error(t, err)

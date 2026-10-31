@@ -18,6 +18,8 @@ import (
 )
 
 const (
+	responsesInputTypeMessage            = "message"
+	responsesInputTypeReasoning          = "reasoning"
 	responsesInputTypeFunctionCall       = "function_call"
 	responsesInputTypeFunctionCallOutput = "function_call_output"
 	responsesInputTypeCustomToolCall     = "custom_tool_call"
@@ -31,7 +33,7 @@ const (
 	ResponsesInputTypeCustomToolOutput   = responsesInputTypeCustomToolOutput
 )
 
-func ResponsesRequestToChatCompletionsRequest(ctx context.Context, req *dto.OpenAIResponsesRequest) (*dto.GeneralOpenAIRequest, error) {
+func ResponsesRequestToChatCompletionsRequest(ctx context.Context, req *dto.OpenAIResponsesRequest, info convmeta.Meta) (*dto.GeneralOpenAIRequest, error) {
 	if req == nil {
 		return nil, errors.New("request is nil")
 	}
@@ -42,7 +44,7 @@ func ResponsesRequestToChatCompletionsRequest(ctx context.Context, req *dto.Open
 		return nil, err
 	}
 
-	messages, err := responsesRequestMessagesToChat(ctx, req)
+	messages, err := responsesRequestMessagesToChat(ctx, req, convmeta.OptionsOf(info).ResponsesChatHistoryCompatibility)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +145,7 @@ func ValidateRequestChatUnsupportedFields(req *dto.OpenAIResponsesRequest) error
 	return validateResponsesRequestChatUnsupportedFields(req)
 }
 
-func responsesRequestMessagesToChat(ctx context.Context, req *dto.OpenAIResponsesRequest) ([]dto.Message, error) {
+func responsesRequestMessagesToChat(ctx context.Context, req *dto.OpenAIResponsesRequest, historyCompatibility bool) ([]dto.Message, error) {
 	messages := make([]dto.Message, 0)
 	if rawJSONPresent(req.Instructions) {
 		instructions, err := responsesJSONString(req.Instructions)
@@ -165,6 +167,9 @@ func responsesRequestMessagesToChat(ctx context.Context, req *dto.OpenAIResponse
 		if err != nil {
 			return nil, fmt.Errorf("invalid input string: %w", err)
 		}
+		if historyCompatibility && strings.TrimSpace(input) == "" {
+			return nil, responsesChatHistoryError("input", "user message must have non-empty content")
+		}
 		messages = append(messages, dto.Message{Role: "user", Content: input})
 		return messages, nil
 	case "array":
@@ -176,18 +181,58 @@ func responsesRequestMessagesToChat(ctx context.Context, req *dto.OpenAIResponse
 		// batch to stay contiguous, so media hoisted out of tool output items is
 		// held back and emitted as a single user message once the batch ends.
 		var pendingMedia []any
-		for _, item := range items {
+		var pendingReasoning strings.Builder
+		var reasoningPath string
+		for index, item := range items {
+			path := fmt.Sprintf("input[%d]", index)
 			itemType := strings.TrimSpace(kitutil.Interface2String(item["type"]))
+			if historyCompatibility && itemType == responsesInputTypeReasoning {
+				if encrypted, exists := item["encrypted_content"]; exists && encrypted != nil {
+					if text, ok := encrypted.(string); !ok || strings.TrimSpace(text) != "" {
+						return nil, responsesChatHistoryError(path+".encrypted_content", "encrypted reasoning history cannot be represented by Chat Completions")
+					}
+				}
+				raw, err := kitutil.Marshal(item)
+				if err != nil {
+					return nil, responsesChatHistoryError(path, "invalid reasoning history")
+				}
+				var output dto.ResponsesOutput
+				if err := kitutil.Unmarshal(raw, &output); err != nil {
+					return nil, responsesChatHistoryError(path, "invalid reasoning history")
+				}
+				if text := reasoningOutputText(&output); strings.TrimSpace(text) != "" {
+					appendSeparatedText(&pendingReasoning, text)
+					reasoningPath = path
+				}
+				// Reasoning does not end a tool-result batch or create a user turn.
+				continue
+			}
+			role := strings.TrimSpace(kitutil.Interface2String(item["role"]))
+			if historyCompatibility && (itemType == "" || itemType == responsesInputTypeMessage) && role != "assistant" {
+				if err := mergeResponsesReasoningIntoAssistant(messages, &pendingReasoning, reasoningPath); err != nil {
+					return nil, err
+				}
+			}
 			if len(pendingMedia) > 0 && itemType != responsesInputTypeFunctionCallOutput && itemType != responsesInputTypeCustomToolOutput {
 				messages = append(messages, dto.Message{Role: "user", Content: pendingMedia})
 				pendingMedia = nil
 			}
-			nextMessages, media, err := responsesInputItemToChatMessages(ctx, item, messages)
+			nextMessages, media, err := responsesInputItemToChatMessages(ctx, item, messages, path, historyCompatibility)
 			if err != nil {
 				return nil, err
 			}
 			messages = nextMessages
+			if historyCompatibility && len(messages) > 0 && messages[len(messages)-1].Role == "assistant" {
+				if err := mergeResponsesReasoningIntoAssistant(messages, &pendingReasoning, reasoningPath); err != nil {
+					return nil, err
+				}
+			}
 			pendingMedia = append(pendingMedia, media...)
+		}
+		if historyCompatibility {
+			if err := mergeResponsesReasoningIntoAssistant(messages, &pendingReasoning, reasoningPath); err != nil {
+				return nil, err
+			}
 		}
 		if len(pendingMedia) > 0 {
 			messages = append(messages, dto.Message{Role: "user", Content: pendingMedia})
@@ -201,7 +246,7 @@ func responsesRequestMessagesToChat(ctx context.Context, req *dto.OpenAIResponse
 // responsesInputItemToChatMessages appends the Chat messages for one Responses input item.
 // The second result carries media content parts hoisted out of a tool output item,
 // already in Chat shape; the caller decides where that user message lands.
-func responsesInputItemToChatMessages(ctx context.Context, item map[string]any, messages []dto.Message) ([]dto.Message, []any, error) {
+func responsesInputItemToChatMessages(ctx context.Context, item map[string]any, messages []dto.Message, path string, historyCompatibility bool) ([]dto.Message, []any, error) {
 	itemType := strings.TrimSpace(kitutil.Interface2String(item["type"]))
 	switch itemType {
 	case responsesInputTypeFunctionCall:
@@ -220,17 +265,77 @@ func responsesInputItemToChatMessages(ctx context.Context, item map[string]any, 
 		callID := strings.TrimSpace(kitutil.Interface2String(item["call_id"]))
 		content, media := responsesToolOutputToChat(ctx, item["output"])
 		return append(messages, dto.Message{Role: "tool", ToolCallId: callID, Content: content}), media, nil
+	case "", responsesInputTypeMessage:
+		// Easy input messages may omit type; other items are not chat messages.
+	default:
+		if historyCompatibility {
+			return nil, nil, responsesChatHistoryError(path, fmt.Sprintf("Responses input item type %q cannot be represented by Chat Completions", itemType))
+		}
 	}
 
 	role := strings.TrimSpace(kitutil.Interface2String(item["role"]))
 	if role == "" {
+		if historyCompatibility {
+			return nil, nil, responsesChatHistoryError(path+".role", "message role is required")
+		}
 		role = "user"
 	}
 	content, err := responsesInputContentToChatContent(ctx, item["content"])
 	if err != nil {
 		return nil, nil, err
 	}
+	if historyCompatibility && role == "user" && responsesUserContentEmpty(content) {
+		return nil, nil, responsesChatHistoryError(path+".content", "user message must have non-empty content")
+	}
 	return append(messages, dto.Message{Role: role, Content: content}), nil, nil
+}
+
+// Preserve portable reasoning on a real assistant message, never on a synthetic turn.
+func mergeResponsesReasoningIntoAssistant(messages []dto.Message, pending *strings.Builder, path string) error {
+	if pending.Len() == 0 {
+		return nil
+	}
+	if len(messages) == 0 || messages[len(messages)-1].Role != "assistant" {
+		return responsesChatHistoryError(path, "reasoning history has no associated assistant message or tool call")
+	}
+	message := &messages[len(messages)-1]
+	var text strings.Builder
+	appendSeparatedText(&text, message.GetReasoningContent())
+	appendSeparatedText(&text, pending.String())
+	value := text.String()
+	message.ReasoningContent = &value
+	pending.Reset()
+	return nil
+}
+
+func responsesUserContentEmpty(content any) bool {
+	switch value := content.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(value) == ""
+	case []any:
+		for _, rawPart := range value {
+			part, ok := rawPart.(map[string]any)
+			if !ok || kitutil.Interface2String(part["type"]) != dto.ContentTypeText || strings.TrimSpace(kitutil.Interface2String(part["text"])) != "" {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func responsesChatHistoryError(path, message string) error {
+	return &types.ConversionLossError{Diagnostics: []types.ConversionDiagnostic{{
+		Code:     "unsupported_input_history",
+		Path:     path,
+		Message:  message,
+		Severity: types.ConversionDiagnosticError,
+		From:     types.RelayFormatOpenAIResponses,
+		To:       types.RelayFormatOpenAI,
+	}}}
 }
 
 func responsesInputContentToChatContent(ctx context.Context, content any) (any, error) {

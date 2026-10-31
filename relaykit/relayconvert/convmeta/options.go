@@ -10,6 +10,11 @@ type Options struct {
 	Claude ClaudeOptions
 	Gemini GeminiOptions
 
+	// ResponsesChatHistoryCompatibility opts into historical reasoning
+	// normalization and message validation when converting Responses to Chat.
+	// The zero value preserves the original conversion behavior.
+	ResponsesChatHistoryCompatibility bool
+
 	// ToolLossPolicy controls whether a cross-protocol conversion may omit or
 	// approximate built-in-tool semantics. The zero value uses the allow
 	// policy: conversion succeeds and every loss is returned as a diagnostic.

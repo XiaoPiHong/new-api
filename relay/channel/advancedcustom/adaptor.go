@@ -112,6 +112,11 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	case relayconvert.ConverterNone:
 		return a.convertOpenAICompatibleResponsesRequest(c, info, request)
 	case relayconvert.ConverterOpenAIResponsesToOpenAIChat:
+		upstreamURL, err := resolveUpstreamTargetURL(applyUpstreamPathTemplate(strings.TrimSpace(a.route.UpstreamPath), info), info)
+		// Cline rejects empty user turns created from replayed Responses reasoning.
+		// Resolve the route target because an absolute route can override the base URL.
+		// URL errors retain the existing request URL validation path.
+		info.ConvOptions().ResponsesChatHistoryCompatibility = err == nil && strings.EqualFold(upstreamURL.Hostname(), "api.cline.bot")
 		return a.convertCrossProtocolChatRequest(c, info, converter, request)
 	case relayconvert.ConverterOpenAIResponsesToGemini:
 		result, err := service.ConvertRequestByID(c, info, converter, request)

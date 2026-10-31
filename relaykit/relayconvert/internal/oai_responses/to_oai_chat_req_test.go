@@ -6,7 +6,10 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
+	oaichat "github.com/QuantumNous/new-api/relaykit/relayconvert/internal/oai_chat"
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +39,7 @@ func TestResponsesRequestToChatCompletionsRequestInstructionsAndScalarInput(t *t
 		PromptCacheKey:       mustRawMessage(t, "cache-key"),
 		PromptCacheRetention: mustRawMessage(t, "24h"),
 		Reasoning:            &dto.Reasoning{Effort: "medium"},
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "gpt-test", got.Model)
@@ -74,7 +77,7 @@ func TestResponsesRequestToChatCompletionsRequestPreservesQwenThinkingBudget(t *
 				Input:          mustRawMessage(t, "hello"),
 				EnableThinking: json.RawMessage(`true`),
 				ThinkingBudget: tt.budget,
-			})
+			}, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.budget, got.ThinkingBudget)
 
@@ -104,7 +107,7 @@ func TestResponsesRequestToChatCompletionsRequestMultimodalInput(t *testing.T) {
 				},
 			},
 		}),
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	require.Len(t, got.Messages, 1)
@@ -145,7 +148,7 @@ func TestResponsesRequestToChatCompletionsRequestAssistantTextAndFunctionCallCoe
 				"output":  map[string]any{"ok": true},
 			},
 		}),
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	require.Len(t, got.Messages, 2)
@@ -173,7 +176,7 @@ func TestResponsesRequestToChatCompletionsRequestOnlyFunctionCallCreatesAssistan
 				"arguments": `{"q":"x"}`,
 			},
 		}),
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	require.Len(t, got.Messages, 1)
@@ -213,7 +216,7 @@ func TestResponsesRequestToChatCompletionsRequestToolsToolChoiceAndTextFormat(t 
 				"strict": true,
 			},
 		}),
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	require.Len(t, got.Tools, 1)
@@ -249,7 +252,7 @@ func TestResponsesRequestToChatCompletionsRequestEncodesCustomToolHistoryAsFunct
 				"output":  "hi",
 			},
 		}),
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	require.Len(t, got.Messages, 2)
@@ -269,7 +272,7 @@ func TestResponsesRequestToChatCompletionsRequestRejectsNamelessCustomToolCall(t
 		Input: mustRawMessage(t, []map[string]any{
 			{"type": "custom_tool_call", "call_id": "call_custom", "input": "ls"},
 		}),
-	})
+	}, nil)
 	require.ErrorContains(t, err, "custom_tool_call item is missing name")
 }
 
@@ -303,7 +306,7 @@ func TestResponsesRequestToChatCompletionsRequestRejectsStatefulFields(t *testin
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ResponsesRequestToChatCompletionsRequest(context.Background(), tt.req)
+			_, err := ResponsesRequestToChatCompletionsRequest(context.Background(), tt.req, nil)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
 			assert.Contains(t, err.Error(), "stateful fields")
@@ -347,7 +350,7 @@ func TestResponsesRequestToChatCompletionsRequestPreservesPenalties(t *testing.T
 				Input:            mustRawMessage(t, "hello"),
 				FrequencyPenalty: tt.frequencyRaw,
 				PresencePenalty:  tt.presenceRaw,
-			})
+			}, nil)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.frequencyWant, got.FrequencyPenalty)
@@ -361,7 +364,7 @@ func TestResponsesRequestToChatCompletionsRequestRejectsMalformedPenalty(t *test
 		Model:            "gpt-test",
 		Input:            mustRawMessage(t, "hello"),
 		FrequencyPenalty: json.RawMessage(`"not-a-number"`),
-	})
+	}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "frequency_penalty")
 }
@@ -438,7 +441,7 @@ func TestResponsesRequestToChatCompletionsRequestToolOutputContentParts(t *testi
 					{"type": "function_call_output", "call_id": "call_1", "output": tt.output},
 					{"role": "user", "content": "next"},
 				}),
-			})
+			}, nil)
 			require.NoError(t, err)
 
 			wantLen := 3
@@ -484,7 +487,7 @@ func TestResponsesRequestToChatCompletionsRequestHoistsToolOutputMediaAfterToolB
 				{"type": "function_call_output", "call_id": "call_2", "output": "file contents"},
 				{"role": "user", "content": "what do you see?"},
 			}),
-		})
+		}, nil)
 		require.NoError(t, err)
 
 		require.Len(t, got.Messages, 5)
@@ -508,7 +511,7 @@ func TestResponsesRequestToChatCompletionsRequestHoistsToolOutputMediaAfterToolB
 				{"type": "function_call_output", "call_id": "call_1", "output": imageOutput},
 				{"type": "custom_tool_call_output", "call_id": "call_2", "output": "file.txt"},
 			}),
-		})
+		}, nil)
 		require.NoError(t, err)
 
 		require.Len(t, got.Messages, 4)
@@ -525,7 +528,7 @@ func TestResponsesRequestToChatCompletionsRequestHoistsToolOutputMediaAfterToolB
 				{"type": "function_call", "call_id": "call_1", "name": "screenshot", "arguments": "{}"},
 				{"type": "function_call_output", "call_id": "call_1", "output": imageOutput},
 			}),
-		})
+		}, nil)
 		require.NoError(t, err)
 
 		require.Len(t, got.Messages, 3)
@@ -535,6 +538,333 @@ func TestResponsesRequestToChatCompletionsRequestHoistsToolOutputMediaAfterToolB
 		require.Len(t, parts, 1)
 		require.NotNil(t, parts[0].GetImageMedia())
 		assert.Equal(t, dataURL, parts[0].GetImageMedia().Url)
+	})
+}
+
+func TestResponsesRequestToChatCompletionsRequestPreservesDefaultHistoryBehavior(t *testing.T) {
+	tests := []struct {
+		name  string
+		input any
+		want  []dto.Message
+	}{
+		{
+			name: "reasoning retains historical empty user fallback",
+			input: []map[string]any{
+				{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": "Plan."}}},
+				{"role": "assistant", "content": "Answer."},
+			},
+			want: []dto.Message{{Role: "user", Content: ""}, {Role: "assistant", Content: "Answer."}},
+		},
+		{
+			name:  "encrypted reasoning retains historical fallback",
+			input: []map[string]any{{"type": "reasoning", "encrypted_content": "opaque"}},
+			want:  []dto.Message{{Role: "user", Content: ""}},
+		},
+		{
+			name:  "missing role defaults to user",
+			input: []map[string]any{{"content": "Question."}},
+			want:  []dto.Message{{Role: "user", Content: "Question."}},
+		},
+		{
+			name:  "unknown item retains historical empty user fallback",
+			input: []map[string]any{{"type": "future_private_item"}},
+			want:  []dto.Message{{Role: "user", Content: ""}},
+		},
+		{
+			name:  "unknown item retains explicit role and content",
+			input: []map[string]any{{"type": "future_private_item", "role": "assistant", "content": "Original content."}},
+			want:  []dto.Message{{Role: "assistant", Content: "Original content."}},
+		},
+		{
+			name:  "item reference retains historical fallback",
+			input: []map[string]any{{"type": "item_reference", "id": "msg_saved"}},
+			want:  []dto.Message{{Role: "user", Content: ""}},
+		},
+		{
+			name:  "compaction retains historical fallback",
+			input: []map[string]any{{"type": "compaction", "encrypted_content": "opaque"}},
+			want:  []dto.Message{{Role: "user", Content: ""}},
+		},
+		{
+			name:  "null user content remains empty",
+			input: []map[string]any{{"type": "message", "role": "user", "content": nil}},
+			want:  []dto.Message{{Role: "user", Content: ""}},
+		},
+		{
+			name:  "empty user content remains empty",
+			input: []map[string]any{{"role": "user", "content": ""}},
+			want:  []dto.Message{{Role: "user", Content: ""}},
+		},
+		{
+			name:  "whitespace user content is preserved",
+			input: []map[string]any{{"role": "user", "content": " \n\t "}},
+			want:  []dto.Message{{Role: "user", Content: " \n\t "}},
+		},
+		{
+			name:  "empty user array retains historical empty string",
+			input: []map[string]any{{"role": "user", "content": []any{}}},
+			want:  []dto.Message{{Role: "user", Content: ""}},
+		},
+		{
+			name:  "whitespace user text parts are preserved",
+			input: []map[string]any{{"role": "user", "content": []any{map[string]any{"type": "input_text", "text": " \n"}}}},
+			want:  []dto.Message{{Role: "user", Content: " \n"}},
+		},
+		{name: "empty scalar is preserved", input: "", want: []dto.Message{{Role: "user", Content: ""}}},
+		{name: "whitespace scalar is preserved", input: " \n\t ", want: []dto.Message{{Role: "user", Content: " \n\t "}}},
+	}
+	modes := []struct {
+		name string
+		info convmeta.Meta
+	}{
+		{name: "nil metadata"},
+		{name: "zero metadata", info: &convmeta.Values{}},
+		{name: "explicitly disabled", info: &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: false}}},
+	}
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					got, err := ResponsesRequestToChatCompletionsRequest(context.Background(), &dto.OpenAIResponsesRequest{
+						Model: "gpt-test", Input: mustRawMessage(t, tt.input),
+					}, mode.info)
+					require.NoError(t, err)
+					assert.Equal(t, tt.want, got.Messages)
+				})
+			}
+		})
+	}
+}
+
+func TestResponsesRequestToChatCompletionsRequestReplaysConvertedResponseHistory(t *testing.T) {
+	const reasoning = "Inspect the request before answering."
+	tests := []struct {
+		name      string
+		body      string
+		toolName  string
+		arguments string
+		custom    bool
+	}{
+		{name: "assistant text", body: "The answer is ready."},
+		{name: "assistant text with function", body: "I will look that up.", toolName: "lookup", arguments: `{"q":"history"}`},
+		{name: "function only", toolName: "lookup", arguments: `{"q":"history"}`},
+		{name: "custom tool only", toolName: "exec", arguments: `{"input":"ls -la"}`, custom: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			message := dto.Message{Role: "assistant", ReasoningContent: lo.ToPtr(reasoning)}
+			if tt.body != "" {
+				message.SetStringContent(tt.body)
+			}
+			var toolState *convmeta.ResponsesToolState
+			if tt.toolName != "" {
+				message.SetToolCalls([]dto.ToolCallRequest{{
+					ID: "call_1", Type: "function",
+					Function: dto.FunctionRequest{Name: tt.toolName, Arguments: tt.arguments},
+				}})
+				if tt.custom {
+					toolState = &convmeta.ResponsesToolState{CustomToolNames: map[string]struct{}{tt.toolName: {}}}
+				}
+			}
+			first, _, err := oaichat.ChatCompletionsResponseToResponsesResponseWithTools(&dto.OpenAITextResponse{
+				Model:   "gpt-test",
+				Choices: []dto.OpenAITextResponseChoice{{Message: message, FinishReason: "stop"}},
+			}, "resp_roundtrip", toolState)
+			require.NoError(t, err)
+
+			// Replay the complete wire output, including the reasoning item, just as a
+			// Responses client adds the first response to its next request history.
+			var wire struct {
+				Output []map[string]any `json:"output"`
+			}
+			require.NoError(t, kitutil.Unmarshal(mustRawMessage(t, first), &wire))
+			require.NotEmpty(t, wire.Output)
+			assert.Equal(t, "reasoning", wire.Output[0]["type"])
+			input := []map[string]any{{"role": "user", "content": "First question."}}
+			input = append(input, wire.Output...)
+			if tt.toolName != "" {
+				outputType := "function_call_output"
+				if tt.custom {
+					outputType = "custom_tool_call_output"
+				}
+				input = append(input, map[string]any{"type": outputType, "call_id": "call_1", "output": "done"})
+			}
+			input = append(input, map[string]any{"role": "user", "content": "Second question."})
+			got, err := ResponsesRequestToChatCompletionsRequest(context.Background(), &dto.OpenAIResponsesRequest{
+				Model: "gpt-test", Input: mustRawMessage(t, input),
+			}, &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: true}})
+			require.NoError(t, err)
+			wantMessages := 3
+			if tt.toolName != "" {
+				wantMessages++
+			}
+			require.Len(t, got.Messages, wantMessages)
+			assert.Equal(t, "First question.", got.Messages[0].StringContent())
+			assistant := got.Messages[1]
+			assert.Equal(t, "assistant", assistant.Role)
+			assert.Equal(t, reasoning, assistant.GetReasoningContent())
+			assert.Equal(t, tt.body, assistant.StringContent())
+			if tt.toolName != "" {
+				calls := assistant.ParseToolCalls()
+				require.Len(t, calls, 1)
+				assert.Equal(t, "call_1", calls[0].ID)
+				assert.Equal(t, tt.toolName, calls[0].Function.Name)
+				assert.JSONEq(t, tt.arguments, calls[0].Function.Arguments)
+				if tt.body == "" {
+					assert.Nil(t, assistant.Content, "a tool-only assistant stays tool-only")
+				}
+				assert.Equal(t, dto.Message{Role: "tool", ToolCallId: "call_1", Content: "done"}, got.Messages[2])
+			}
+			assert.Equal(t, dto.Message{Role: "user", Content: "Second question."}, got.Messages[wantMessages-1])
+		})
+	}
+}
+
+func TestResponsesRequestToChatCompletionsRequestReasoningKeepsParallelToolMediaContiguous(t *testing.T) {
+	const dataURL = "data:image/png;base64,iVBORw0KGgo="
+	got, err := ResponsesRequestToChatCompletionsRequest(context.Background(), &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: mustRawMessage(t, []map[string]any{
+			{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": "Call both tools."}}},
+			{"type": "function_call", "call_id": "call_shot", "name": "screenshot", "arguments": "{}"},
+			{"type": "custom_tool_call", "call_id": "call_exec", "name": "exec", "input": "ls"},
+			{"type": "function_call_output", "call_id": "call_shot", "output": []any{
+				map[string]any{"type": "input_image", "image_url": dataURL},
+			}},
+			{"type": "reasoning", "content": []any{map[string]any{"type": "reasoning_text", "text": "Compare the results."}}},
+			{"type": "custom_tool_call_output", "call_id": "call_exec", "output": "file.txt"},
+			{"type": "message", "role": "assistant", "content": "Results are ready."},
+			{"role": "user", "content": "Continue."},
+		}),
+	}, &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: true}})
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 6)
+	assert.Equal(t, "assistant", got.Messages[0].Role)
+	assert.Equal(t, "Call both tools.", got.Messages[0].GetReasoningContent())
+	calls := got.Messages[0].ParseToolCalls()
+	require.Len(t, calls, 2)
+	assert.Equal(t, "call_shot", calls[0].ID)
+	assert.Equal(t, "screenshot", calls[0].Function.Name)
+	assert.JSONEq(t, `{}`, calls[0].Function.Arguments)
+	assert.Equal(t, "call_exec", calls[1].ID)
+	assert.Equal(t, "exec", calls[1].Function.Name)
+	assert.JSONEq(t, `{"input":"ls"}`, calls[1].Function.Arguments)
+	assert.Equal(t, dto.Message{Role: "tool", ToolCallId: "call_shot", Content: "[image]"}, got.Messages[1])
+	assert.Equal(t, dto.Message{Role: "tool", ToolCallId: "call_exec", Content: "file.txt"}, got.Messages[2])
+	assert.Equal(t, "user", got.Messages[3].Role)
+	parts := got.Messages[3].ParseContent()
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].GetImageMedia())
+	assert.Equal(t, dataURL, parts[0].GetImageMedia().Url)
+	assert.Equal(t, "assistant", got.Messages[4].Role)
+	assert.Equal(t, "Results are ready.", got.Messages[4].StringContent())
+	assert.Equal(t, "Compare the results.", got.Messages[4].GetReasoningContent())
+	assert.Equal(t, dto.Message{Role: "user", Content: "Continue."}, got.Messages[5])
+}
+
+func TestResponsesRequestToChatCompletionsRequestAttachesTrailingReasoningToAdjacentAssistant(t *testing.T) {
+	got, err := ResponsesRequestToChatCompletionsRequest(context.Background(), &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: mustRawMessage(t, []map[string]any{
+			{"role": "user", "content": "Question."},
+			{"role": "assistant", "content": "Answer."},
+			{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": "Checked the answer."}}},
+		}),
+	}, &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: true}})
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 2)
+	assert.Equal(t, "assistant", got.Messages[1].Role)
+	assert.Equal(t, "Answer.", got.Messages[1].StringContent())
+	assert.Equal(t, "Checked the answer.", got.Messages[1].GetReasoningContent())
+}
+
+func TestResponsesRequestToChatCompletionsRequestIgnoresEmptyUnencryptedReasoning(t *testing.T) {
+	got, err := ResponsesRequestToChatCompletionsRequest(context.Background(), &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: mustRawMessage(t, []map[string]any{
+			{"type": "reasoning", "summary": []any{}},
+			{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": ""}}},
+			{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": " \n\t "}}},
+			{"role": "user", "content": "Question."},
+		}),
+	}, &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: true}})
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 1)
+	assert.Equal(t, dto.Message{Role: "user", Content: "Question."}, got.Messages[0])
+}
+
+func TestResponsesRequestToChatCompletionsRequestRejectsUnrepresentableHistory(t *testing.T) {
+	reasoning := map[string]any{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": "Private plan."}}}
+	tests := []struct {
+		name  string
+		input []map[string]any
+	}{
+		{name: "encrypted reasoning even with readable summary", input: []map[string]any{
+			{"type": "reasoning", "encrypted_content": "opaque", "summary": []any{map[string]any{"type": "summary_text", "text": "Summary."}}},
+			{"role": "assistant", "content": "Answer."},
+		}},
+		{name: "encrypted reasoning without summary", input: []map[string]any{{"type": "reasoning", "encrypted_content": "opaque"}}},
+		{name: "compaction", input: []map[string]any{{"type": "compaction", "encrypted_content": "opaque"}}},
+		{name: "item reference", input: []map[string]any{{"type": "item_reference", "id": "msg_saved"}}},
+		{name: "unknown non-message with content", input: []map[string]any{{"type": "future_private_item", "role": "user", "content": "Do not reinterpret this item."}}},
+		{name: "reasoning alone", input: []map[string]any{reasoning}},
+		{name: "reasoning has no assistant carrier", input: []map[string]any{reasoning, {"role": "user", "content": "Question."}}},
+		{name: "trailing reasoning cannot cross user boundary", input: []map[string]any{
+			{"role": "assistant", "content": "Answer."}, {"role": "user", "content": "Next question."}, reasoning,
+		}},
+		{name: "trailing reasoning cannot cross tool boundary", input: []map[string]any{
+			{"type": "function_call", "call_id": "call_1", "name": "lookup", "arguments": "{}"},
+			{"type": "function_call_output", "call_id": "call_1", "output": "done"}, reasoning,
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ResponsesRequestToChatCompletionsRequest(context.Background(), &dto.OpenAIResponsesRequest{
+				Model: "gpt-test", Input: mustRawMessage(t, tt.input),
+			}, &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: true}})
+			var loss *types.ConversionLossError
+			require.ErrorAs(t, err, &loss)
+			require.NotEmpty(t, loss.Diagnostics)
+		})
+	}
+}
+
+func TestResponsesRequestToChatCompletionsRequestRejectsEmptyUserContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		content any
+	}{
+		{name: "null", content: nil},
+		{name: "empty string", content: ""},
+		{name: "whitespace", content: " \n\t "},
+		{name: "empty array", content: []any{}},
+		{name: "empty text parts", content: []any{map[string]any{"type": "input_text", "text": " \n"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ResponsesRequestToChatCompletionsRequest(context.Background(), &dto.OpenAIResponsesRequest{
+				Model: "gpt-test",
+				Input: mustRawMessage(t, []map[string]any{{"type": "message", "role": "user", "content": tt.content}}),
+			}, &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: true}})
+			var loss *types.ConversionLossError
+			require.ErrorAs(t, err, &loss)
+		})
+	}
+
+	t.Run("image only is meaningful content", func(t *testing.T) {
+		got, err := ResponsesRequestToChatCompletionsRequest(context.Background(), &dto.OpenAIResponsesRequest{
+			Model: "gpt-test",
+			Input: mustRawMessage(t, []map[string]any{{"type": "message", "role": "user", "content": []any{
+				map[string]any{"type": "input_image", "image_url": "https://example.test/image.png"},
+			}}}),
+		}, &convmeta.Values{Options: &convmeta.Options{ResponsesChatHistoryCompatibility: true}})
+		require.NoError(t, err)
+		require.Len(t, got.Messages, 1)
+		parts := got.Messages[0].ParseContent()
+		require.Len(t, parts, 1)
+		require.NotNil(t, parts[0].GetImageMedia())
+		assert.Equal(t, "https://example.test/image.png", parts[0].GetImageMedia().Url)
 	})
 }
 

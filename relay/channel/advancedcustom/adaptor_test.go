@@ -551,6 +551,91 @@ func TestAdaptorConvertsResponsesRequestToOpenAIChatUpstream(t *testing.T) {
 	assert.Equal(t, "/v1/chat/completions", parsedURL.Path)
 }
 
+func TestAdaptorScopesResponsesChatHistoryCompatibilityToCline(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		baseURL    string
+		upstream   string
+		compatible bool
+	}{
+		{name: "cline relative route", baseURL: "https://api.cline.bot/api", upstream: "/v1/chat/completions", compatible: true},
+		{name: "case insensitive hostname", baseURL: "https://API.CLINE.BOT:443/api", upstream: "/v1/chat/completions", compatible: true},
+		{name: "other provider", baseURL: "https://other.example/api", upstream: "/v1/chat/completions"},
+		{name: "absolute route overrides cline base", baseURL: "https://api.cline.bot/api", upstream: "https://other.example/v1/chat/completions"},
+		{name: "absolute cline route overrides other base", baseURL: "https://other.example", upstream: "https://api.cline.bot/api/v1/chat/completions", compatible: true},
+		{name: "hostname suffix is not cline", baseURL: "https://api.cline.bot.other.example", upstream: "/v1/chat/completions"},
+		{name: "subdomain is not cline", baseURL: "https://other.api.cline.bot", upstream: "/v1/chat/completions"},
+		{name: "path does not identify provider", baseURL: "https://other.example/api.cline.bot", upstream: "/v1/chat/completions"},
+		{name: "username does not identify provider", baseURL: "https://api.cline.bot@other.example", upstream: "/v1/chat/completions"},
+		{name: "invalid URL keeps legacy conversion behavior", baseURL: "not-a-url", upstream: "/v1/chat/completions"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := advancedCustomRelayInfo(&dto.AdvancedCustomConfig{Routes: []dto.AdvancedCustomRoute{{
+				IncomingPath: "/v1/responses",
+				UpstreamPath: tc.upstream,
+				Converter:    relayconvert.ConverterOpenAIResponsesToOpenAIChat,
+			}}})
+			info.ChannelBaseUrl = tc.baseURL
+			info.RelayFormat = types.RelayFormatOpenAIResponses
+			info.RelayMode = relayconstant.RelayModeResponses
+			info.RequestURLPath = "/v1/responses"
+			// A prior value must never override the current route's provider.
+			info.ConvOptions().ResponsesChatHistoryCompatibility = !tc.compatible
+
+			converted, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(advancedCustomGinContext("/v1/responses"), info, dto.OpenAIResponsesRequest{
+				Model: "gpt-test",
+				Input: mustAdvancedCustomRawMessage(t, []map[string]any{
+					{"role": "user", "content": "Question."},
+					{"type": "reasoning", "summary": []map[string]any{{"type": "summary_text", "text": "Checked the answer."}}},
+					{"type": "message", "role": "assistant", "content": "Answer."},
+					{"role": "user", "content": "Continue."},
+				}),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.compatible, info.ConvOptions().ResponsesChatHistoryCompatibility)
+			chat, ok := converted.(*dto.GeneralOpenAIRequest)
+			require.True(t, ok)
+			if tc.compatible {
+				require.Len(t, chat.Messages, 3)
+				assert.Equal(t, "assistant", chat.Messages[1].Role)
+				assert.Equal(t, "Checked the answer.", chat.Messages[1].GetReasoningContent())
+			} else {
+				require.Len(t, chat.Messages, 4)
+				assert.Equal(t, "user", chat.Messages[1].Role)
+				assert.Empty(t, chat.Messages[1].StringContent())
+				assert.Empty(t, chat.Messages[2].GetReasoningContent())
+			}
+			assert.Equal(t, "Continue.", chat.Messages[len(chat.Messages)-1].StringContent())
+		})
+	}
+}
+
+func TestAdaptorClineNativeResponsesKeepsOriginalHistory(t *testing.T) {
+	info := advancedCustomRelayInfo(&dto.AdvancedCustomConfig{Routes: []dto.AdvancedCustomRoute{{
+		IncomingPath: "/v1/responses",
+		UpstreamPath: "/v1/responses",
+		Converter:    relayconvert.ConverterNone,
+	}}})
+	info.ChannelBaseUrl = "https://api.cline.bot/api"
+	info.RelayFormat = types.RelayFormatOpenAIResponses
+	info.RelayMode = relayconstant.RelayModeResponses
+	info.RequestURLPath = "/v1/responses"
+	input := mustAdvancedCustomRawMessage(t, []map[string]any{
+		{"type": "reasoning", "summary": []map[string]any{{"type": "summary_text", "text": "Checked the answer."}}},
+		{"type": "message", "role": "assistant", "content": "Answer."},
+		{"role": "user", "content": "Continue."},
+	})
+
+	converted, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(advancedCustomGinContext("/v1/responses"), info, dto.OpenAIResponsesRequest{
+		Model: "gpt-test", Input: input,
+	})
+	require.NoError(t, err)
+	responses, ok := converted.(dto.OpenAIResponsesRequest)
+	require.True(t, ok)
+	assert.JSONEq(t, string(input), string(responses.Input))
+	assert.False(t, info.ConvOptions().ResponsesChatHistoryCompatibility)
+}
+
 func TestAdaptorSelectsDuplicateResponsesRoutesByModel(t *testing.T) {
 	config := &dto.AdvancedCustomConfig{
 		Routes: []dto.AdvancedCustomRoute{

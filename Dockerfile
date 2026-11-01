@@ -22,6 +22,7 @@ ADD go.mod go.sum ./
 # go.mod files must be present for go mod download to resolve the main module graph.
 ADD relaykit/go.mod ./relaykit/go.mod
 ADD tokenkit/go.mod ./tokenkit/go.mod
+ENV GOPROXY="https://goproxy.cn|https://proxy.golang.org|direct"
 RUN go mod download
 
 COPY . .
